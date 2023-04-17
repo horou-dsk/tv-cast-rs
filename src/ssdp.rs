@@ -2,8 +2,8 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{Read, Write},
-    net::{Ipv4Addr, SocketAddr, UdpSocket},
-    sync::{Arc, RwLock},
+    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
+    sync::{Arc, LazyLock, RwLock},
 };
 
 use rand::Rng;
@@ -13,6 +13,9 @@ use crate::{
     constant::{SSDP_ADDR, SSDP_PORT},
     header::parse_header,
 };
+
+pub static mut ALLOW_IP: LazyLock<RwLock<Vec<Ipv4Addr>>> =
+    LazyLock::new(|| RwLock::new(Vec::new()));
 
 #[derive(Clone)]
 pub struct SSDPServer<'a> {
@@ -87,12 +90,15 @@ impl<'a> SSDPServer<'a> {
                 .collect::<String>()
                 .replace("{ip}", &self.ip_list[0].0.to_string());
             // println!("==============notify = \n{}", resp);
+            // for allow_ip in unsafe { &*(ALLOW_IP.read().unwrap()) } {
+            //     let allow_addr = SocketAddrV4::new(*allow_ip, SSDP_PORT);
+            //     self.udp_socket
+            //         .send_to(resp.as_bytes(), &allow_addr.into())
+            //         .expect("send error");
+            // }
             self.udp_socket
                 .send_to(resp.as_bytes(), &self.sock_addr)
                 .expect("send error");
-            // self.udp_socket
-            //     .send_to(resp.as_bytes(), &self.sock_addr)
-            //     .expect("send error");
         }
     }
 
@@ -145,7 +151,14 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
         if method[0] == "M-SEARCH" && method[1] == "*" {
             // println!("M-SEARCH *");
             // println!("M-SEARCH * Result = \n{} from ip = {}", result, src);
-            self.discovery_request(headers, src);
+            match src.ip() {
+                IpAddr::V4(ipv4) => {
+                    if unsafe { ALLOW_IP.read().unwrap().contains(&ipv4) } {
+                        self.discovery_request(headers, src);
+                    }
+                }
+                IpAddr::V6(_) => (),
+            }
             // unimplemented!()
         } else if method[0] == "NOTIFY" && method[1] == "*" {
         } else {

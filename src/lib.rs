@@ -1,4 +1,5 @@
 #![feature(maybe_uninit_slice)]
+#![feature(lazy_cell)]
 
 use std::{
     mem::MaybeUninit,
@@ -9,7 +10,8 @@ use std::{
 };
 
 use protocol::DLNAHandler;
-use ssdp::Ssdp;
+use ssdp::{Ssdp, ALLOW_IP};
+use surge_ping::{PingIdentifier, PingSequence};
 
 use crate::constant::{SSDP_ADDR, SSDP_PORT};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
@@ -80,5 +82,25 @@ pub fn dlna_init() -> std::io::Result<DLNAHandler> {
     Ok(dlna)
 }
 
+pub async fn ip_online_check() -> std::io::Result<()> {
+    let allow_ip_clone = unsafe { ALLOW_IP.read().unwrap().clone() };
+    let config = surge_ping::Config::default();
+    let client = surge_ping::Client::new(&config)?;
+    let payload = [0; 8];
+    let mut online_ip = Vec::new();
+    for ip in allow_ip_clone {
+        let mut pinger = client
+            .pinger(std::net::IpAddr::V4(ip), PingIdentifier(rand::random()))
+            .await;
+        pinger.timeout(Duration::from_millis(500));
+        if pinger.ping(PingSequence(0), &payload).await.is_ok() {
+            online_ip.push(ip);
+        }
+    }
+    unsafe { *ALLOW_IP.write().as_deref_mut().unwrap() = online_ip };
+    Ok(())
+}
+
 pub mod actions;
+pub mod net;
 pub mod routers;

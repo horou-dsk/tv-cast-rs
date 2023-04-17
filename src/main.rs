@@ -1,9 +1,9 @@
 use actix_web::{
     get, http::header, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
-use hztp::{dlna_init, protocol::DLNAHandler, routers};
+use hztp::{dlna_init, ip_online_check, protocol::DLNAHandler, routers, ssdp::ALLOW_IP};
 use serde::{Deserialize, Serialize};
-use std::{process::Command, sync::Arc};
+use std::{net::Ipv4Addr, process::Command, sync::Arc};
 
 #[get("/")]
 async fn hello() -> impl Responder {
@@ -24,8 +24,17 @@ async fn hello() -> impl Responder {
 #[get("/ip")]
 async fn echo(req: HttpRequest) -> impl Responder {
     let info = req.connection_info();
-    let ip = info.peer_addr().unwrap_or("没获取到IP");
-    HttpResponse::Ok().body(ip.to_string())
+    if let Some(ip) = info.peer_addr() {
+        unsafe {
+            ALLOW_IP
+                .write()
+                .unwrap()
+                .push(ip.parse::<Ipv4Addr>().unwrap());
+        }
+        HttpResponse::Ok().body(format!("{ip} 绑定成功！"))
+    } else {
+        HttpResponse::Ok().body(format!("没有获取到ip地址！"))
+    }
 }
 
 async fn manual_hello() -> impl Responder {
@@ -53,6 +62,13 @@ async fn sh(data: web::Json<Sh>) -> impl Responder {
 async fn description(dlna: web::Data<Arc<DLNAHandler>>, req: HttpRequest) -> impl Responder {
     let info = req.connection_info();
     let ip = info.peer_addr().unwrap_or("没获取到IP");
+    if let Ok(ipv4) = ip.parse::<Ipv4Addr>() {
+        if unsafe { !ALLOW_IP.read().unwrap().contains(&ipv4) } {
+            return HttpResponse::InternalServerError().body("permission denied");
+        }
+    } else {
+        return HttpResponse::InternalServerError().body("permission denied");
+    }
     println!("read description.xml from ip = {}", ip);
     HttpResponse::Ok()
         .append_header((header::CONTENT_TYPE, "text/xml"))
@@ -62,6 +78,14 @@ async fn description(dlna: web::Data<Arc<DLNAHandler>>, req: HttpRequest) -> imp
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     println!("Starting Server...");
+    tokio::spawn(async {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            if let Err(err) = ip_online_check().await {
+                println!("检查ip地址是否在线失败！ error = {:?}", err);
+            }
+        }
+    });
     let dlna = Arc::new(dlna_init().unwrap());
     HttpServer::new(move || {
         App::new()
