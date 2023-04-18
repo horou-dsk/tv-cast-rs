@@ -1,7 +1,10 @@
 use actix_web::{
     get, http::header, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
-use hztp::{dlna_init, ip_online_check, protocol::DLNAHandler, routers, ssdp::ALLOW_IP};
+use hztp::{
+    constant::SERVER_PORT, dlna_init, ip_online_check, protocol::DLNAHandler, routers,
+    ssdp::ALLOW_IP,
+};
 use serde::{Deserialize, Serialize};
 use std::{net::Ipv4Addr, process::Command, sync::Arc};
 
@@ -25,12 +28,10 @@ async fn hello() -> impl Responder {
 async fn echo(req: HttpRequest) -> impl Responder {
     let info = req.connection_info();
     if let Some(ip) = info.peer_addr() {
-        unsafe {
-            ALLOW_IP
-                .write()
-                .unwrap()
-                .push(ip.parse::<Ipv4Addr>().unwrap());
-        }
+        ALLOW_IP
+            .write()
+            .unwrap()
+            .push(ip.parse::<Ipv4Addr>().unwrap());
         HttpResponse::Ok().body(format!("{ip} 绑定成功！"))
     } else {
         HttpResponse::Ok().body(format!("没有获取到ip地址！"))
@@ -63,7 +64,7 @@ async fn description(dlna: web::Data<Arc<DLNAHandler>>, req: HttpRequest) -> imp
     let info = req.connection_info();
     let ip = info.peer_addr().unwrap_or("没获取到IP");
     if let Ok(ipv4) = ip.parse::<Ipv4Addr>() {
-        if unsafe { !ALLOW_IP.read().unwrap().contains(&ipv4) } {
+        if !ALLOW_IP.read().unwrap().contains(&ipv4) {
             return HttpResponse::InternalServerError().body("permission denied");
         }
     } else {
@@ -97,7 +98,7 @@ async fn main() -> std::io::Result<()> {
             .configure(routers::dlna::config)
             .route("/hey", web::get().to(manual_hello))
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind(("0.0.0.0", SERVER_PORT))?
     .run()
     .await
 }

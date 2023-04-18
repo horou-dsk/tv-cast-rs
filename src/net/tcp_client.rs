@@ -1,14 +1,36 @@
-use std::net::TcpStream;
+use std::time::Duration;
 
 use serde::{de::DeserializeOwned, Serialize};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+    time::timeout,
+};
 
-pub fn send<S, T>(data: S) -> std::io::Result<T>
+use crate::constant::ANDROID_ADDR;
+
+#[inline]
+pub async fn send<S, R>(data: S) -> std::io::Result<R>
 where
     S: Serialize,
-    T: DeserializeOwned,
+    R: DeserializeOwned,
 {
-    let mut stream = TcpStream::connect("127.0.0.1:8080")?;
-    serde_json::to_writer(&mut stream, &data).unwrap();
-    stream.shutdown(std::net::Shutdown::Write)?;
-    Ok(serde_json::from_reader(stream).unwrap())
+    let mut stream = timeout(Duration::from_secs(1), TcpStream::connect(ANDROID_ADDR)).await??;
+    // 该方法为同步独有
+    // stream
+    //     .set_read_timeout(Some(Duration::from_secs(10)))
+    //     .await?;
+    let v = serde_json::to_vec(&data).unwrap();
+    stream.write_all(&v).await?;
+    // serde_json::to_writer(&mut stream.rea, &data).unwrap();
+    stream.shutdown().await?;
+    println!("发送完毕....");
+    let mut result = Vec::new();
+    // let mut buf = [0; 1024];
+    // stream.read_exact(&mut buf).await?;
+    timeout(Duration::from_secs(15), stream.read_to_end(&mut result)).await??;
+    // stream.read_to_string(&mut result)?;
+    // println!("接收到的字符串数据：\n{}\n", result);
+    // Ok(serde_json::from_reader(stream).unwrap())
+    Ok(serde_json::from_slice(&result).expect("json解析失败，格式错误！"))
 }

@@ -8,8 +8,12 @@ use actix_web::{
     HttpRequest, HttpResponse, Responder,
 };
 
-use crate::actions::avtransport::{
-    AVTransportAction, AVTransportResponse, GetTransportInfoResponse,
+use crate::{
+    actions::avtransport::{
+        android::{EachAction, PositionInfo, SeekTarget, TransportState},
+        AVTransportAction, AVTransportResponse, GetPositionInfoResponse, GetTransportInfoResponse,
+    },
+    net::tcp_client,
 };
 
 // const MAX_SIZE: usize = 262_144;
@@ -43,11 +47,23 @@ async fn avtransport_action(bytes: web::Bytes) -> impl Responder {
     println!("avtransport_action = {}\n\n", result);
     match AVTransportAction::from_xml_text(&result) {
         Ok(AVTransportAction::GetTransportInfo(_)) => {
-            let resp = GetTransportInfoResponse {
-                current_speed: "1",
-                current_transport_state: "PLAYING",
-                current_transport_status: "OK",
-                ..Default::default()
+            let resp = match tcp_client::send::<_, EachAction<TransportState>>(
+                EachAction::only_action("GetTransportInfo"),
+            )
+            .await
+            {
+                Ok(rep) => GetTransportInfoResponse {
+                    current_speed: "1",
+                    current_transport_state: rep.data.unwrap().current_transport_state,
+                    current_transport_status: "OK",
+                    ..Default::default()
+                },
+                Err(_) => GetTransportInfoResponse {
+                    current_speed: "1",
+                    current_transport_state: "STOPPED".to_string(),
+                    current_transport_status: "OK",
+                    ..Default::default()
+                },
             };
             AVTransportResponse::ok(resp)
         }
@@ -66,13 +82,55 @@ async fn avtransport_action(bytes: web::Bytes) -> impl Responder {
                 .expect("错误...");
             AVTransportResponse::default_ok("SetAVTransportURI")
         }
-        Ok(AVTransportAction::Play(_)) => AVTransportResponse::default_ok("Play"),
-        Ok(AVTransportAction::Stop(_)) => AVTransportResponse::default_ok("Stop"),
-        Ok(AVTransportAction::GetPositionInfo) => {
-            AVTransportResponse::default_ok("GetPositionInfo")
+        Ok(AVTransportAction::Play(_)) => {
+            let _: EachAction = tcp_client::send(EachAction::only_action("Play"))
+                .await
+                .unwrap();
+            AVTransportResponse::default_ok("Play")
         }
-        Ok(AVTransportAction::Seek(_seek)) => AVTransportResponse::default_ok("Seek"),
-        Ok(AVTransportAction::Puase) => AVTransportResponse::default_ok("Pause"),
+        Ok(AVTransportAction::Stop(_)) => {
+            let _: EachAction = tcp_client::send(EachAction::only_action("Stop"))
+                .await
+                .unwrap();
+            AVTransportResponse::default_ok("Stop")
+        }
+        Ok(AVTransportAction::GetPositionInfo) => {
+            if let Ok(resp) = tcp_client::send::<_, EachAction<PositionInfo>>(
+                EachAction::only_action("GetPositionInfo"),
+            )
+            .await
+            {
+                let data = resp.data.unwrap();
+                AVTransportResponse::ok(GetPositionInfoResponse {
+                    track: 0,
+                    track_duration: &data.track_duration,
+                    abs_time: &data.rel_time,
+                    rel_time: &data.rel_time,
+                    abs_count: 2147483646,
+                    rel_count: 2147483646,
+                    ..Default::default()
+                })
+            } else {
+                AVTransportResponse::default_ok("GetPositionInfo")
+            }
+        }
+        Ok(AVTransportAction::Seek(seek)) => {
+            tcp_client::send::<_, EachAction>(EachAction::new(
+                "Seek",
+                SeekTarget {
+                    target: seek.target,
+                },
+            ))
+            .await
+            .ok();
+            AVTransportResponse::default_ok("Seek")
+        }
+        Ok(AVTransportAction::Pause) => {
+            tcp_client::send::<_, EachAction>(EachAction::only_action("Pause"))
+                .await
+                .ok();
+            AVTransportResponse::default_ok("Pause")
+        }
         _ => AVTransportResponse::err(401, "Invalid Action"),
     }
 }

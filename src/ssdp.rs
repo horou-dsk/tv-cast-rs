@@ -10,12 +10,11 @@ use rand::Rng;
 use socket2::{SockAddr, Socket};
 
 use crate::{
-    constant::{SSDP_ADDR, SSDP_PORT},
+    constant::{SERVER_PORT, SSDP_ADDR, SSDP_PORT},
     header::parse_header,
 };
 
-pub static mut ALLOW_IP: LazyLock<RwLock<Vec<Ipv4Addr>>> =
-    LazyLock::new(|| RwLock::new(Vec::new()));
+pub static ALLOW_IP: LazyLock<RwLock<Vec<Ipv4Addr>>> = LazyLock::new(|| RwLock::new(Vec::new()));
 
 #[derive(Clone)]
 pub struct SSDPServer<'a> {
@@ -153,7 +152,7 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
             // println!("M-SEARCH * Result = \n{} from ip = {}", result, src);
             match src.ip() {
                 IpAddr::V4(ipv4) => {
-                    if unsafe { ALLOW_IP.read().unwrap().contains(&ipv4) } {
+                    if ALLOW_IP.read().unwrap().contains(&ipv4) {
                         self.discovery_request(headers, src);
                     }
                 }
@@ -261,7 +260,7 @@ impl<'a> Ssdp<'a> {
             self.server.write().unwrap().register(
                 device,
                 st,
-                format!("http://{{ip}}:{}/description.xml", 8080),
+                format!("http://{{ip}}:{}/description.xml", SERVER_PORT),
                 Some("Linux/4.9.113 HTTP/1.0".to_string()),
                 Some("max-age=66".to_string()),
             );

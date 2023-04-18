@@ -1,3 +1,4 @@
+use super::constant::SERVER_PORT;
 use std::net::Ipv4Addr;
 
 #[derive(Clone)]
@@ -21,7 +22,7 @@ impl DLNAHandler {
             serial_num = 1024,
             header_extra = "",
             service_extra = "",
-            url_base = format!("http://{}:8080", ip)
+            url_base = format!("http://{}:{SERVER_PORT}", ip)
         );
         Self {
             description,

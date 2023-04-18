@@ -83,7 +83,10 @@ pub fn dlna_init() -> std::io::Result<DLNAHandler> {
 }
 
 pub async fn ip_online_check() -> std::io::Result<()> {
-    let allow_ip_clone = unsafe { ALLOW_IP.read().unwrap().clone() };
+    if ALLOW_IP.read().unwrap().is_empty() {
+        return Ok(());
+    }
+    let allow_ip_clone = std::mem::take(ALLOW_IP.write().as_deref_mut().unwrap());
     let config = surge_ping::Config::default();
     let client = surge_ping::Client::new(&config)?;
     let payload = [0; 8];
@@ -97,7 +100,7 @@ pub async fn ip_online_check() -> std::io::Result<()> {
             online_ip.push(ip);
         }
     }
-    unsafe { *ALLOW_IP.write().as_deref_mut().unwrap() = online_ip };
+    *ALLOW_IP.write().as_deref_mut().unwrap() = online_ip;
     Ok(())
 }
 

@@ -8,7 +8,7 @@ pub fn get_ip() -> (Ipv4Addr, Ipv4Addr) {
             ip = ipv4.addr;
             netmask = ipv4.netmask;
         }
-        println!("inteface \nip = {}\nnetmask={}", ip, netmask);
+        println!("inteface \nip = {}\nnetmask = {}", ip, netmask);
         (ip, netmask)
     } else {
         panic!("get default interface Error");

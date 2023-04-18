@@ -56,7 +56,7 @@ pub enum AVTransportAction {
     Play(Play),
     Stop(Stop),
     GetPositionInfo,
-    Puase,
+    Pause,
     Seek(Seek),
 }
 
@@ -102,7 +102,7 @@ xml_response! {
     #[derive(Debug, Serialize)]
     #[serde(rename_all = "PascalCase")]
     GetTransportInfoResponse<'a> {
-        pub current_transport_state: &'a str,
+        pub current_transport_state: String,
         pub current_transport_status: &'a str,
         pub current_speed: &'a str,
     }
@@ -136,5 +136,52 @@ impl AVTransportResponse {
                 code = code,
                 err_msg = err_msg
             ))
+    }
+}
+
+pub mod android {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct EachAction<T = u8> {
+        pub action: String,
+        pub data: Option<T>,
+    }
+
+    impl EachAction<u8> {
+        pub fn only_action(action: &str) -> Self {
+            Self {
+                action: action.into(),
+                data: None,
+            }
+        }
+    }
+
+    impl<T> EachAction<T> {
+        pub fn new(action: &str, data: T) -> Self {
+            Self {
+                action: action.into(),
+                data: Some(data),
+            }
+        }
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct TransportState {
+        pub current_transport_state: String,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PositionInfo {
+        pub track_duration: String,
+        pub rel_time: String,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SeekTarget {
+        pub target: String,
     }
 }
