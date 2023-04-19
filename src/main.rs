@@ -79,6 +79,9 @@ async fn description(dlna: web::Data<Arc<DLNAHandler>>, req: HttpRequest) -> imp
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     println!("Starting Server...");
+    let mut args = std::env::args();
+    args.next();
+    let name = args.next().expect("缺少投屏名称参数！");
     tokio::spawn(async {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
@@ -87,7 +90,7 @@ async fn main() -> std::io::Result<()> {
             }
         }
     });
-    let dlna = Arc::new(dlna_init().unwrap());
+    let dlna = Arc::new(dlna_init(name).unwrap());
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(dlna.clone()))

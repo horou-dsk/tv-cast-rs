@@ -9,6 +9,7 @@ version = "0.1.0"
 actix-web = {version = "4"}
 chrono = "0.4.24"
 default-net = "0.14"
+futures = "0.3.28"
 quick-xml = {version = "0.28.1", features = ["serialize"]}
 rand = "0.8.5"
 serde = {version = "1", features = ["derive"]}

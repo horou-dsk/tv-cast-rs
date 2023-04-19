@@ -86,8 +86,8 @@ impl<'a> SSDPServer<'a> {
                 .chain(map.into_iter().map(|(k, v)| format!("{k}: {v}")))
                 .chain(["".to_string(), "".to_string()].into_iter())
                 .map(|v| format!("{v}\r\n"))
-                .collect::<String>()
-                .replace("{ip}", &self.ip_list[0].0.to_string());
+                .collect::<String>();
+            // .replace("{ip}", &self.ip_list[0].0.to_string());
             // println!("==============notify = \n{}", resp);
             // for allow_ip in unsafe { &*(ALLOW_IP.read().unwrap()) } {
             //     let allow_addr = SocketAddrV4::new(*allow_ip, SSDP_PORT);
@@ -195,7 +195,7 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
 
                         for (ip, netmask) in &self.ip_list {
                             if get_subnet_ip(*ip, *netmask) == get_subnet_ip(*host, *netmask) {
-                                let response = response.replace("{ip}", &ip.to_string());
+                                // let response = response.replace("{ip}", &ip.to_string());
                                 // println!("send to = {} \n to host = {}", response, addr);
                                 self.send_socket.send_to(response.as_bytes(), addr).unwrap();
                                 break;
@@ -250,7 +250,7 @@ impl<'a> Ssdp<'a> {
         }
     }
 
-    pub fn register(self) -> Self {
+    pub fn register(self, local_ip: Ipv4Addr) -> Self {
         for device in &self.devices {
             let st = if device.len() <= 43 {
                 device.clone()
@@ -260,7 +260,7 @@ impl<'a> Ssdp<'a> {
             self.server.write().unwrap().register(
                 device,
                 st,
-                format!("http://{{ip}}:{}/description.xml", SERVER_PORT),
+                format!("http://{}:{}/description.xml", local_ip, SERVER_PORT),
                 Some("Linux/4.9.113 HTTP/1.0".to_string()),
                 Some("max-age=66".to_string()),
             );

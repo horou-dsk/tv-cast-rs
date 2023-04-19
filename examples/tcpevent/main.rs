@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use hztp::{
     actions::avtransport::android::{EachAction, PositionInfo, SeekTarget},
     net::tcp_client,
@@ -57,6 +58,10 @@ fn server() -> std::io::Result<()> {
     Ok(())
 }
 
+async fn send_to<T: Serialize>(index: usize, action: EachAction<T>) -> (usize, serde_json::Value) {
+    (index, tcp_client::send(action).await.unwrap())
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // std::thread::spawn(|| {
@@ -77,31 +82,24 @@ async fn main() -> std::io::Result<()> {
     // .await?;
     // let a: EachAction<PositionInfo> = tcp_client::send(EachAction::only_action("Play"))
     // .await?;
-    let a: EachAction<PositionInfo> = tcp_client::send(EachAction::only_action("Stop"))
-    .await?;
-    println!("客户端收到的数据111：{:#?}", a);
-    // tokio::spawn(async {
-    //     let a: EachAction<PositionInfo> = tcp_client::send(EachAction::new(
-    //         "GetPositionInfo",
-    //         SeekTarget {
-    //             target: "00:10:50".to_string(),
-    //         },
-    //     ))
-    //     .await
-    //     .unwrap();
-    //     println!("客户端收到的数据111：{:#?}", a);
-    // });
-    // tokio::spawn(async {
-    //     let a: EachAction<PositionInfo> = tcp_client::send(EachAction::new(
-    //         "Seek",
-    //         SeekTarget {
-    //             target: "00:00:50".to_string(),
-    //         },
-    //     ))
-    //     .await
-    //     .unwrap();
-    //     println!("客户端收到的数据：{:#?}", a);
-    // });
+    // let a: EachAction<PositionInfo> = tcp_client::send(EachAction::only_action("Stop"))
+    // .await?;
+    // println!("客户端收到的数据111：{:#?}", a);
+    let mut queue = FuturesUnordered::new();
+    for i in 1..=5 {
+        queue.push(send_to(
+            i,
+            EachAction::new(
+                &format!("Action {i}"),
+                SeekTarget {
+                    target: "00:10:50".to_string(),
+                },
+            ),
+        ));
+    }
+    while let Some((n, result)) = queue.next().await {
+        println!("{n}、客户端收到的数据：\n{:#?}", result);
+    }
     // tokio::time::sleep(Duration::from_secs(10)).await;
     // println!("{:?}", now.elapsed());
     // std::thread::sleep(Duration::from_secs(3));

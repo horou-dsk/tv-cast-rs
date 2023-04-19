@@ -35,7 +35,7 @@ pub fn set_resue_upd(udp_socket: &Socket) -> std::io::Result<()> {
     udp_socket.set_reuse_address(true)
 }
 
-pub fn dlna_init() -> std::io::Result<DLNAHandler> {
+pub fn dlna_init(name: String) -> std::io::Result<DLNAHandler> {
     let ip_addr = SSDP_ADDR.parse::<Ipv4Addr>().unwrap();
     let udp_socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     let (ip, netmask) = setting::get_ip();
@@ -50,7 +50,7 @@ pub fn dlna_init() -> std::io::Result<DLNAHandler> {
         println!("join_multicast_v4 error = {:?}", err);
     }
     let udp_socket = Arc::new(udp_socket);
-    let ssdp = Ssdp::new(udp_socket.clone(), ip).register();
+    let ssdp = Ssdp::new(udp_socket.clone(), ip).register(ip);
     ssdp.server.write().unwrap().add_ip_list((ip, netmask));
     // if cfg!(windows) {
     //     let win_ip = Ipv4Addr::new(192, 169, 137, 1);
@@ -60,9 +60,9 @@ pub fn dlna_init() -> std::io::Result<DLNAHandler> {
     //         .unwrap()
     //         .add_ip_list((win_ip, win_netmask));
     // }
-    let dlna = DLNAHandler::new(&ssdp.usn, ip);
+    let dlna = DLNAHandler::new(&ssdp.usn, ip, name);
     {
-        let udp_socket = udp_socket;
+        // let udp_socket = udp_socket;
         let server = ssdp.server.clone();
         thread::spawn(move || loop {
             let mut buf = [MaybeUninit::uninit(); 1024];
@@ -86,12 +86,12 @@ pub async fn ip_online_check() -> std::io::Result<()> {
     if ALLOW_IP.read().unwrap().is_empty() {
         return Ok(());
     }
-    let allow_ip_clone = std::mem::take(ALLOW_IP.write().as_deref_mut().unwrap());
+    let allow_ip = std::mem::take(ALLOW_IP.write().as_deref_mut().unwrap());
     let config = surge_ping::Config::default();
     let client = surge_ping::Client::new(&config)?;
     let payload = [0; 8];
     let mut online_ip = Vec::new();
-    for ip in allow_ip_clone {
+    for ip in allow_ip {
         let mut pinger = client
             .pinger(std::net::IpAddr::V4(ip), PingIdentifier(rand::random()))
             .await;

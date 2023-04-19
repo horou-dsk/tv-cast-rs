@@ -68,7 +68,7 @@ async fn avtransport_action(bytes: web::Bytes) -> impl Responder {
             AVTransportResponse::ok(resp)
         }
         Ok(AVTransportAction::SetAVTransportURI(av_uri)) => {
-            // println!("\nmeta xml = {}\n", av_uri.uri_meta_data);
+            println!("\nmeta xml = {}\n", av_uri.uri_meta_data);
             Command::new("am")
                 .args([
                     "start",

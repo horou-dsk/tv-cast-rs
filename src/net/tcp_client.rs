@@ -30,7 +30,10 @@ where
     // stream.read_exact(&mut buf).await?;
     timeout(Duration::from_secs(15), stream.read_to_end(&mut result)).await??;
     // stream.read_to_string(&mut result)?;
-    // println!("接收到的字符串数据：\n{}\n", result);
+    // println!(
+    //     "接收到的字符串数据：\n{}\n",
+    //     String::from_utf8_lossy(&result)
+    // );
     // Ok(serde_json::from_reader(stream).unwrap())
     Ok(serde_json::from_slice(&result).expect("json解析失败，格式错误！"))
 }

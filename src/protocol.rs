@@ -8,11 +8,11 @@ pub struct DLNAHandler {
 }
 
 impl DLNAHandler {
-    pub fn new(usn: &str, ip: Ipv4Addr) -> Self {
+    pub fn new(usn: &str, ip: Ipv4Addr, name: String) -> Self {
         let description = format!(
             include_str!("./xml/Description.xml"),
             uuid = usn,
-            friendly_name = format!("Rust盒子投屏-{}", ip),
+            friendly_name = name,
             manufacturer = "Microsoft Corporation",
             manufacturer_url = "http://www.microsoft.com",
             model_description = "Media Renderer",
