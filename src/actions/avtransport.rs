@@ -184,4 +184,11 @@ pub mod android {
     pub struct SeekTarget {
         pub target: String,
     }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct AVTransportURI {
+        pub uri: String,
+        pub uri_meta: String,
+    }
 }

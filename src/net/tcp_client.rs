@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    io::{Error, ErrorKind},
+    time::Duration,
+};
 
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{
@@ -28,12 +31,16 @@ where
     let mut result = Vec::new();
     // let mut buf = [0; 1024];
     // stream.read_exact(&mut buf).await?;
-    timeout(Duration::from_secs(15), stream.read_to_end(&mut result)).await??;
+    timeout(Duration::from_secs(2), stream.read_to_end(&mut result)).await??;
     // stream.read_to_string(&mut result)?;
-    // println!(
-    //     "接收到的字符串数据：\n{}\n",
-    //     String::from_utf8_lossy(&result)
-    // );
+    println!(
+        "接收到的字符串数据：\n{}\n",
+        String::from_utf8_lossy(&result)
+    );
+    if result.is_empty() {
+        Err(Error::from(ErrorKind::InvalidData))
+    } else {
+        Ok(serde_json::from_slice(&result).expect("json解析失败，格式错误！"))
+    }
     // Ok(serde_json::from_reader(stream).unwrap())
-    Ok(serde_json::from_slice(&result).expect("json解析失败，格式错误！"))
 }

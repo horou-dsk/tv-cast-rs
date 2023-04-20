@@ -9,7 +9,7 @@ use std::{
 
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use hztp::{
-    actions::avtransport::android::{EachAction, PositionInfo, SeekTarget},
+    actions::avtransport::android::{EachAction, PositionInfo, SeekTarget, TransportState},
     net::tcp_client,
 };
 use serde::{Deserialize, Serialize};
@@ -84,17 +84,14 @@ async fn main() -> std::io::Result<()> {
     // .await?;
     // let a: EachAction<PositionInfo> = tcp_client::send(EachAction::only_action("Stop"))
     // .await?;
+    // let a: EachAction<TransportState> =
+    //     tcp_client::send(EachAction::only_action("GetTransportInfo")).await?;
     // println!("客户端收到的数据111：{:#?}", a);
     let mut queue = FuturesUnordered::new();
-    for i in 1..=5 {
+    for i in 1..=50 {
         queue.push(send_to(
             i,
-            EachAction::new(
-                &format!("Action {i}"),
-                SeekTarget {
-                    target: "00:10:50".to_string(),
-                },
-            ),
+            EachAction::only_action("Stop"),
         ));
     }
     while let Some((n, result)) = queue.next().await {

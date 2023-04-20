@@ -1,4 +1,4 @@
-use std::process::Command;
+// use std::process::Command;
 
 use actix_web::{
     get,
@@ -10,7 +10,7 @@ use actix_web::{
 
 use crate::{
     actions::avtransport::{
-        android::{EachAction, PositionInfo, SeekTarget, TransportState},
+        android::{AVTransportURI, EachAction, PositionInfo, SeekTarget, TransportState},
         AVTransportAction, AVTransportResponse, GetPositionInfoResponse, GetTransportInfoResponse,
     },
     net::tcp_client,
@@ -41,10 +41,13 @@ const _ACTION_RESPONSE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
     </s:Body>
 </s:Envelope>"#;
 
+static mut RUNNING: bool = false;
+
 #[post("/action")]
-async fn avtransport_action(bytes: web::Bytes) -> impl Responder {
+async fn avtransport_action(request: HttpRequest, bytes: web::Bytes) -> impl Responder {
+    let host = request.headers().get("Host");
     let result = String::from_utf8_lossy(&bytes);
-    println!("avtransport_action = {}\n\n", result);
+    println!("{host:?} avtransport_action = {result}\n\n");
     match AVTransportAction::from_xml_text(&result) {
         Ok(AVTransportAction::GetTransportInfo(_)) => {
             let resp = match tcp_client::send::<_, EachAction<TransportState>>(
@@ -52,15 +55,25 @@ async fn avtransport_action(bytes: web::Bytes) -> impl Responder {
             )
             .await
             {
-                Ok(rep) => GetTransportInfoResponse {
-                    current_speed: "1",
-                    current_transport_state: rep.data.unwrap().current_transport_state,
-                    current_transport_status: "OK",
-                    ..Default::default()
-                },
+                Ok(rep) => {
+                    let state = rep.data.unwrap().current_transport_state;
+                    if state == "STOPPED" {
+                        unsafe { RUNNING = false };
+                    }
+                    GetTransportInfoResponse {
+                        current_speed: "1",
+                        current_transport_state: state,
+                        current_transport_status: "OK",
+                        ..Default::default()
+                    }
+                }
                 Err(_) => GetTransportInfoResponse {
                     current_speed: "1",
-                    current_transport_state: "STOPPED".to_string(),
+                    current_transport_state: if unsafe { RUNNING } {
+                        "PLAYING".to_string()
+                    } else {
+                        "STOPPED".to_string()
+                    },
                     current_transport_status: "OK",
                     ..Default::default()
                 },
@@ -69,29 +82,39 @@ async fn avtransport_action(bytes: web::Bytes) -> impl Responder {
         }
         Ok(AVTransportAction::SetAVTransportURI(av_uri)) => {
             println!("\nmeta xml = {}\n", av_uri.uri_meta_data);
-            Command::new("am")
-                .args([
-                    "start",
-                    "-n",
-                    "com.ycsoft.smartbox/com.ycsoft.smartbox.ui.activity.TPActivity",
-                    "-e",
-                    "CurrentURI",
-                    &av_uri.uri,
-                ])
-                .status()
-                .expect("错误...");
+            tcp_client::send::<_, EachAction>(EachAction::new(
+                "SetAVTransportURI",
+                AVTransportURI {
+                    uri: av_uri.uri,
+                    uri_meta: av_uri.uri_meta_data,
+                },
+            ))
+            .await
+            .ok();
+            unsafe { RUNNING = true };
+            // Command::new("am")
+            //     .args([
+            //         "start",
+            //         "-n",
+            //         "com.ycsoft.smartbox/com.ycsoft.smartbox.ui.activity.TPActivity",
+            //         "-e",
+            //         "CurrentURI",
+            //         &av_uri.uri,
+            //     ])
+            //     .status()
+            //     .expect("错误...");
             AVTransportResponse::default_ok("SetAVTransportURI")
         }
         Ok(AVTransportAction::Play(_)) => {
-            let _: EachAction = tcp_client::send(EachAction::only_action("Play"))
-                .await
-                .unwrap();
+            let _: Option<EachAction> =
+                tcp_client::send(EachAction::only_action("Play")).await.ok();
             AVTransportResponse::default_ok("Play")
         }
         Ok(AVTransportAction::Stop(_)) => {
-            let _: EachAction = tcp_client::send(EachAction::only_action("Stop"))
+            tcp_client::send::<_, EachAction>(EachAction::only_action("Stop"))
                 .await
-                .unwrap();
+                .ok();
+            unsafe { RUNNING = false };
             AVTransportResponse::default_ok("Stop")
         }
         Ok(AVTransportAction::GetPositionInfo) => {

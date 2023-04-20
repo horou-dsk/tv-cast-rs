@@ -142,7 +142,10 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
 
     pub fn datagram_received(&self, data: &[u8], src: SocketAddr) {
         let result = String::from_utf8_lossy(data);
-        let (method, headers) = parse_header(&result);
+        let Some((method, headers)) = parse_header(&result) else {
+            println!("Error Result = {}", result);
+            return;
+        };
         if method[0] == "NOTIFY" {
             // println!("result = \n{}", result);
             // println!("SSDP command {} {} - from {}", method[0], method[1], src);
