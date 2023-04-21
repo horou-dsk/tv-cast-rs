@@ -27,7 +27,7 @@ macro_rules! xml_response {
                 let mut buf = String::new();
                 let ser = Serializer::new(&mut buf);
                 self.serialize(ser).unwrap();
-                buf
+                buf.replace(stringify!($name), concat!("u:", stringify!($name)))
             }
         }
     };

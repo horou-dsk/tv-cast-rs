@@ -58,6 +58,7 @@ pub enum AVTransportAction {
     GetPositionInfo,
     Pause,
     Seek(Seek),
+    GetMediaInfo,
 }
 
 impl AVTransportAction {
@@ -93,8 +94,8 @@ xml_response! {
         pub track_uri: Option<&'a str>,
         pub rel_time: &'a str,
         pub abs_time: &'a str,
-        pub rel_count: u32,
-        pub abs_count: u32,
+        pub rel_count: i32,
+        pub abs_count: i32,
     }
 }
 
@@ -105,6 +106,22 @@ xml_response! {
         pub current_transport_state: String,
         pub current_transport_status: &'a str,
         pub current_speed: &'a str,
+    }
+}
+
+xml_response! {
+    #[derive(Debug, Serialize)]
+    #[serde(rename_all = "PascalCase")]
+    GetMediaInfoResponse<'a> {
+        pub nr_tracks: &'a str,
+        pub media_duration: &'a str,
+        pub current_uri: &'a str,
+        pub current_uri_meta_data: &'a str,
+        pub next_uri: Option<&'a str>,
+        pub next_uri_meta_data: Option<&'a str>,
+        pub play_medium: &'a str,
+        pub record_medium: &'a str,
+        pub write_status: &'a str,
     }
 }
 

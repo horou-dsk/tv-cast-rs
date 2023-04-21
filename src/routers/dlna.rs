@@ -1,5 +1,10 @@
 // use std::process::Command;
 
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    sync::LazyLock,
+};
+
 use actix_web::{
     get,
     http::{header, Method},
@@ -7,6 +12,7 @@ use actix_web::{
     web::{self, ServiceConfig},
     HttpRequest, HttpResponse, Responder,
 };
+use tokio::sync::RwLock;
 
 use crate::{
     actions::avtransport::{
@@ -41,13 +47,34 @@ const _ACTION_RESPONSE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
     </s:Body>
 </s:Envelope>"#;
 
-static mut RUNNING: bool = false;
+struct SingleAction {
+    timestamp: chrono::NaiveDateTime,
+    host: IpAddr,
+    running: bool,
+    current_uri: String,
+    current_uri_meta_data: String,
+}
+
+static SIGNLE_ACTION: LazyLock<RwLock<SingleAction>> = LazyLock::new(|| {
+    RwLock::new(SingleAction {
+        timestamp: chrono::Local::now().naive_local(),
+        host: IpAddr::V4(Ipv4Addr::LOCALHOST),
+        running: false,
+        current_uri: "".to_string(),
+        current_uri_meta_data: "".to_string(),
+    })
+});
 
 #[post("/action")]
 async fn avtransport_action(request: HttpRequest, bytes: web::Bytes) -> impl Responder {
-    let host = request.headers().get("Host");
+    // println!("{:#?}", request.headers());
+    let host = request
+        .peer_addr()
+        .map(|addr| addr.ip())
+        .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
     let result = String::from_utf8_lossy(&bytes);
     println!("{host:?} avtransport_action = {result}\n\n");
+    // let host = host.cloned().unwrap_or(HeaderValue::from_str("").unwrap());
     match AVTransportAction::from_xml_text(&result) {
         Ok(AVTransportAction::GetTransportInfo(_)) => {
             let resp = match tcp_client::send::<_, EachAction<TransportState>>(
@@ -58,29 +85,48 @@ async fn avtransport_action(request: HttpRequest, bytes: web::Bytes) -> impl Res
                 Ok(rep) => {
                     let state = rep.data.unwrap().current_transport_state;
                     if state == "STOPPED" {
-                        unsafe { RUNNING = false };
+                        SIGNLE_ACTION.write().await.running = false;
                     }
+                    let sa = SIGNLE_ACTION.read().await;
                     GetTransportInfoResponse {
                         current_speed: "1",
-                        current_transport_state: state,
+                        current_transport_state: if sa.running && sa.host == host {
+                            state
+                        } else {
+                            "STOPPED".to_string()
+                        },
                         current_transport_status: "OK",
                         ..Default::default()
                     }
                 }
-                Err(_) => GetTransportInfoResponse {
-                    current_speed: "1",
-                    current_transport_state: if unsafe { RUNNING } {
-                        "PLAYING".to_string()
-                    } else {
-                        "STOPPED".to_string()
-                    },
-                    current_transport_status: "OK",
-                    ..Default::default()
-                },
+                Err(_) => {
+                    let sa = SIGNLE_ACTION.read().await;
+                    GetTransportInfoResponse {
+                        current_speed: "1",
+                        current_transport_state: if sa.running && sa.host == host {
+                            "PLAYING".to_string()
+                        } else {
+                            "STOPPED".to_string()
+                        },
+                        current_transport_status: "OK",
+                        ..Default::default()
+                    }
+                }
             };
             AVTransportResponse::ok(resp)
         }
         Ok(AVTransportAction::SetAVTransportURI(av_uri)) => {
+            let mut sa = SIGNLE_ACTION.write().await;
+            let now = chrono::Local::now().naive_local();
+            if sa.running && sa.host != host && (now - sa.timestamp) < chrono::Duration::seconds(5)
+            {
+                return AVTransportResponse::err(401, "Invalid Action");
+            }
+            sa.host = host;
+            sa.timestamp = now;
+            sa.current_uri = av_uri.uri.clone();
+            sa.current_uri_meta_data = av_uri.uri_meta_data.clone();
+            drop(sa);
             println!("\nmeta xml = {}\n", av_uri.uri_meta_data);
             tcp_client::send::<_, EachAction>(EachAction::new(
                 "SetAVTransportURI",
@@ -91,7 +137,7 @@ async fn avtransport_action(request: HttpRequest, bytes: web::Bytes) -> impl Res
             ))
             .await
             .ok();
-            unsafe { RUNNING = true };
+            SIGNLE_ACTION.write().await.running = true;
             // Command::new("am")
             //     .args([
             //         "start",
@@ -114,7 +160,7 @@ async fn avtransport_action(request: HttpRequest, bytes: web::Bytes) -> impl Res
             tcp_client::send::<_, EachAction>(EachAction::only_action("Stop"))
                 .await
                 .ok();
-            unsafe { RUNNING = false };
+            SIGNLE_ACTION.write().await.running = false;
             AVTransportResponse::default_ok("Stop")
         }
         Ok(AVTransportAction::GetPositionInfo) => {
@@ -124,13 +170,16 @@ async fn avtransport_action(request: HttpRequest, bytes: web::Bytes) -> impl Res
             .await
             {
                 let data = resp.data.unwrap();
+                let sa = SIGNLE_ACTION.read().await;
                 AVTransportResponse::ok(GetPositionInfoResponse {
-                    track: 0,
+                    track: 1,
                     track_duration: &data.track_duration,
+                    track_uri: Some(&sa.current_uri),
+                    track_meta_data: Some(&sa.current_uri_meta_data),
                     abs_time: &data.rel_time,
                     rel_time: &data.rel_time,
-                    abs_count: 2147483646,
-                    rel_count: 2147483646,
+                    abs_count: i32::MAX,
+                    rel_count: i32::MAX,
                     ..Default::default()
                 })
             } else {
@@ -154,6 +203,23 @@ async fn avtransport_action(request: HttpRequest, bytes: web::Bytes) -> impl Res
                 .ok();
             AVTransportResponse::default_ok("Pause")
         }
+        // Ok(AVTransportResponse::GetMediaInfo) => {
+        //     if let Ok(resp) = tcp_client::send::<_, EachAction<PositionInfo>>(
+        //         EachAction::only_action("GetPositionInfo"),
+        //     )
+        //     .await
+        //     {
+        //         let data = resp.data.unwrap();
+        //         let sa = SIGNLE_ACTION.read().await;
+        //         AVTransportResponse::ok(GetMediaInfoResponse {
+        //             current_uri: &sa.current_uri,
+        //             current_uri_meta_data: &sa.current_uri_meta_data,
+        //             nr_tracks:
+        //         })
+        //     } else {
+        //         AVTransportResponse::default_ok("GetMediaInfo")
+        //     }
+        // }
         _ => AVTransportResponse::err(401, "Invalid Action"),
     }
 }

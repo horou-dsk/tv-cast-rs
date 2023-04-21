@@ -19,7 +19,7 @@ where
     R: DeserializeOwned,
 {
     let mut stream = timeout(Duration::from_secs(1), TcpStream::connect(ANDROID_ADDR)).await??;
-    // 该方法为同步独有
+    // 该方法为同步IO独有
     // stream
     //     .set_read_timeout(Some(Duration::from_secs(10)))
     //     .await?;
@@ -27,7 +27,6 @@ where
     stream.write_all(&v).await?;
     // serde_json::to_writer(&mut stream.rea, &data).unwrap();
     stream.shutdown().await?;
-    println!("发送完毕....");
     let mut result = Vec::new();
     // let mut buf = [0; 1024];
     // stream.read_exact(&mut buf).await?;

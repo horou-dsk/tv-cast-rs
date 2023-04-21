@@ -1,4 +1,4 @@
-use hztp::actions::avtransport::{AVTransportAction, GetPositionInfoResponse};
+use hztp::actions::{avtransport::{AVTransportAction, GetPositionInfoResponse}, XmlToString};
 use quick_xml::se::Serializer;
 use serde::Serialize;
 
@@ -20,6 +20,6 @@ fn main() {
         ..Default::default()
     };
     resp.serialize(ser).unwrap();
-    println!("{}", buf);
-    println!("{:?}", body);
+    println!("{}", resp.xml());
+    // println!("{:?}", body);
 }
