@@ -2,6 +2,7 @@
 #![allow(unused_imports)]
 
 use std::{
+    fmt::Debug,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     time::{Duration, Instant},
@@ -58,7 +59,10 @@ fn server() -> std::io::Result<()> {
     Ok(())
 }
 
-async fn send_to<T: Serialize>(index: usize, action: EachAction<T>) -> (usize, serde_json::Value) {
+async fn send_to<T: Serialize + Debug>(
+    index: usize,
+    action: EachAction<T>,
+) -> (usize, serde_json::Value) {
     (index, tcp_client::send(action).await.unwrap())
 }
 
@@ -89,10 +93,7 @@ async fn main() -> std::io::Result<()> {
     // println!("客户端收到的数据111：{:#?}", a);
     let mut queue = FuturesUnordered::new();
     for i in 1..=50 {
-        queue.push(send_to(
-            i,
-            EachAction::only_action("Stop"),
-        ));
+        queue.push(send_to(i, EachAction::only_action("Stop")));
     }
     while let Some((n, result)) = queue.next().await {
         println!("{n}、客户端收到的数据：\n{:#?}", result);

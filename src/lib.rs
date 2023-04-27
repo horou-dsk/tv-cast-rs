@@ -1,5 +1,6 @@
 #![feature(maybe_uninit_slice)]
 #![feature(lazy_cell)]
+#![feature(result_option_inspect)]
 
 use std::{
     mem::MaybeUninit,
@@ -9,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use futures::{stream::FuturesUnordered, StreamExt};
 use protocol::DLNAHandler;
 use ssdp::{Ssdp, ALLOW_IP};
 use surge_ping::{PingIdentifier, PingSequence};
@@ -38,20 +40,33 @@ pub fn set_resue_upd(udp_socket: &Socket) -> std::io::Result<()> {
 pub fn dlna_init(name: String) -> std::io::Result<DLNAHandler> {
     let ip_addr = SSDP_ADDR.parse::<Ipv4Addr>().unwrap();
     let udp_socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-    let (ip, netmask) = setting::get_ip();
-    let address = format!("{}:{}", SSDP_ADDR, SSDP_PORT)
+    let ip_list = setting::get_ip().unwrap();
+    for local_ip in &ip_list {
+        println!("local_ip = {local_ip:?}");
+        if let Err(err) = udp_socket.join_multicast_v4(&ip_addr, &local_ip.0) {
+            println!("1.join_multicast_v4 error = {:?}", err);
+        }
+    }
+
+    let address = format!("0.0.0.0:{}", SSDP_PORT)
         .parse::<SocketAddr>()
         .unwrap();
     set_resue_upd(&udp_socket)?;
     udp_socket.set_multicast_loop_v4(false).unwrap();
     let address: SockAddr = address.into();
     udp_socket.bind(&address)?;
-    if let Err(err) = udp_socket.join_multicast_v4(&ip_addr, &ip) {
-        println!("join_multicast_v4 error = {:?}", err);
-    }
+
     let udp_socket = Arc::new(udp_socket);
-    let ssdp = Ssdp::new(udp_socket.clone(), ip).register(ip);
-    ssdp.server.write().unwrap().add_ip_list((ip, netmask));
+
+    let local_ip = ip_list[0];
+
+    let ssdp = Ssdp::new(udp_socket.clone(), local_ip.0).register();
+    {
+        let mut server = ssdp.server.write().unwrap();
+        for local_ip in ip_list {
+            server.add_ip_list(local_ip);
+        }
+    }
     // if cfg!(windows) {
     //     let win_ip = Ipv4Addr::new(192, 169, 137, 1);
     //     let win_netmask = Ipv4Addr::new(255, 255, 255, 0);
@@ -60,23 +75,27 @@ pub fn dlna_init(name: String) -> std::io::Result<DLNAHandler> {
     //         .unwrap()
     //         .add_ip_list((win_ip, win_netmask));
     // }
-    let dlna = DLNAHandler::new(&ssdp.usn, ip, name);
+    let dlna = DLNAHandler::new(&ssdp.usn, local_ip.0, name);
     {
         // let udp_socket = udp_socket;
         let server = ssdp.server.clone();
-        thread::spawn(move || loop {
-            let mut buf = [MaybeUninit::uninit(); 1024];
-            let (amt, src) = udp_socket.recv_from(&mut buf).expect("recv_from error");
-            let buf = unsafe { MaybeUninit::slice_assume_init_ref(&buf[..amt]) };
-            server
-                .read()
-                .unwrap()
-                .datagram_received(buf, src.as_socket().unwrap());
-        });
-        thread::spawn(move || loop {
-            thread::sleep(Duration::from_secs(2));
-            ssdp.do_notify();
-        });
+        thread::Builder::new()
+            .name("ssdp recv".to_string())
+            .spawn(move || loop {
+                let mut buf = [MaybeUninit::uninit(); 1024];
+                let (amt, src) = udp_socket.recv_from(&mut buf).expect("recv_from error");
+                let buf = unsafe { MaybeUninit::slice_assume_init_ref(&buf[..amt]) };
+                server
+                    .read()
+                    .unwrap()
+                    .datagram_received(buf, src.as_socket().unwrap());
+            })?;
+        thread::Builder::new()
+            .name("ssdp notify".to_string())
+            .spawn(move || loop {
+                thread::sleep(Duration::from_secs(2));
+                ssdp.do_notify();
+            })?;
     }
 
     Ok(dlna)
@@ -86,21 +105,38 @@ pub async fn ip_online_check() -> std::io::Result<()> {
     if ALLOW_IP.read().unwrap().is_empty() {
         return Ok(());
     }
-    let allow_ip = std::mem::take(ALLOW_IP.write().as_deref_mut().unwrap());
+    // let allow_ip = std::mem::take(ALLOW_IP.write().as_deref_mut().unwrap());
+    let allow_ip = { ALLOW_IP.read().unwrap().clone() };
     let config = surge_ping::Config::default();
     let client = surge_ping::Client::new(&config)?;
-    let payload = [0; 8];
-    let mut online_ip = Vec::new();
+    let payload = [0; 56];
+    let mut remove_ip = Vec::new();
+    let mut tasks = FuturesUnordered::new();
     for ip in allow_ip {
-        let mut pinger = client
-            .pinger(std::net::IpAddr::V4(ip), PingIdentifier(rand::random()))
-            .await;
-        pinger.timeout(Duration::from_millis(500));
-        if pinger.ping(PingSequence(0), &payload).await.is_ok() {
-            online_ip.push(ip);
+        let client = client.clone();
+        tasks.push(async move {
+            let mut pinger = client
+                .pinger(std::net::IpAddr::V4(ip), PingIdentifier(rand::random()))
+                .await;
+            pinger.timeout(Duration::from_secs(5));
+            for i in 0..3 {
+                if let Err(err) = pinger.ping(PingSequence(i), &payload).await {
+                    println!("ping error {ip} {err:?}");
+                } else {
+                    return (true, ip);
+                }
+            }
+            println!("剔除 device_ip = {ip}");
+            (false, ip)
+        });
+    }
+    while let Some((connect, ip)) = tasks.next().await {
+        if !connect {
+            remove_ip.push(ip);
         }
     }
-    *ALLOW_IP.write().as_deref_mut().unwrap() = online_ip;
+    let mut allow_ip = ALLOW_IP.write().unwrap();
+    allow_ip.retain(|ip| !remove_ip.contains(ip));
     Ok(())
 }
 

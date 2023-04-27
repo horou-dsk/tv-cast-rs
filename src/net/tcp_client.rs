@@ -1,4 +1,5 @@
 use std::{
+    fmt::Debug,
     io::{Error, ErrorKind},
     time::Duration,
 };
@@ -15,10 +16,22 @@ use crate::constant::ANDROID_ADDR;
 #[inline]
 pub async fn send<S, R>(data: S) -> std::io::Result<R>
 where
-    S: Serialize,
+    S: Serialize + Debug,
     R: DeserializeOwned,
 {
-    let mut stream = timeout(Duration::from_secs(1), TcpStream::connect(ANDROID_ADDR)).await??;
+    let mut stream = match timeout(Duration::from_secs(1), TcpStream::connect(ANDROID_ADDR)).await {
+        Ok(stream) => match stream {
+            Ok(stream) => stream,
+            Err(err) => {
+                eprintln!("{data:?} 连接失败...{err:?}");
+                return Err(err);
+            }
+        },
+        Err(err) => {
+            eprintln!("{data:?} 连接超时...{err:?}");
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+    };
     // 该方法为同步IO独有
     // stream
     //     .set_read_timeout(Some(Duration::from_secs(10)))
@@ -30,12 +43,21 @@ where
     let mut result = Vec::new();
     // let mut buf = [0; 1024];
     // stream.read_exact(&mut buf).await?;
-    timeout(Duration::from_secs(2), stream.read_to_end(&mut result)).await??;
+    match timeout(Duration::from_secs(3), stream.read_to_end(&mut result)).await {
+        Ok(r) => {
+            if let Err(err) = r {
+                eprintln!("{data:?} 读取失败... {err:?}");
+            }
+        }
+        Err(err) => {
+            eprintln!("{data:?} 读取超时... {err:?}");
+        }
+    }
     // stream.read_to_string(&mut result)?;
-    println!(
-        "接收到的字符串数据：\n{}\n",
-        String::from_utf8_lossy(&result)
-    );
+    // println!(
+    //     "接收到的字符串数据：\n{}\n",
+    //     String::from_utf8_lossy(&result)
+    // );
     if result.is_empty() {
         Err(Error::from(ErrorKind::InvalidData))
     } else {

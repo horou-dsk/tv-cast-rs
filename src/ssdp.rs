@@ -14,7 +14,8 @@ use crate::{
     header::parse_header,
 };
 
-pub static ALLOW_IP: LazyLock<RwLock<Vec<Ipv4Addr>>> = LazyLock::new(|| RwLock::new(Vec::new()));
+pub static ALLOW_IP: LazyLock<RwLock<Vec<Ipv4Addr>>> =
+    LazyLock::new(|| RwLock::new(vec![Ipv4Addr::new(192, 169, 1, 46)]));
 
 #[derive(Clone)]
 pub struct SSDPServer<'a> {
@@ -27,17 +28,22 @@ pub struct SSDPServer<'a> {
 }
 
 impl<'a> SSDPServer<'a> {
-    pub fn new(udp_socket: Arc<Socket>, local_ip: Ipv4Addr) -> Self {
+    pub fn new(udp_socket: Arc<Socket>, _local_ip: Ipv4Addr) -> Self {
+        let ssdp_addr = format!("{}:{}", SSDP_ADDR, SSDP_PORT)
+            .parse::<SocketAddr>()
+            .unwrap();
+        let send_socket = Arc::new(UdpSocket::bind(("0.0.0.0", 19565)).unwrap());
+        // send_socket
+        //     .join_multicast_v4(&SSDP_ADDR.parse::<Ipv4Addr>().unwrap(), &local_ip)
+        //     .unwrap();
+        // send_socket.set_multicast_loop_v4(false).unwrap();
         Self {
             udp_socket,
             known: HashMap::new(),
             // ip_addr: SSDP_ADDR.parse::<Ipv4Addr>().unwrap(),
             ip_list: Vec::new(),
-            sock_addr: format!("{}:{}", SSDP_ADDR, SSDP_PORT)
-                .parse::<SocketAddr>()
-                .unwrap()
-                .into(),
-            send_socket: Arc::new(UdpSocket::bind((local_ip, 19565)).unwrap()),
+            sock_addr: ssdp_addr.into(),
+            send_socket,
         }
     }
 
@@ -95,9 +101,22 @@ impl<'a> SSDPServer<'a> {
             //         .send_to(resp.as_bytes(), &allow_addr.into())
             //         .expect("send error");
             // }
-            self.udp_socket
-                .send_to(resp.as_bytes(), &self.sock_addr)
-                .expect("send error");
+
+            for (ip, _) in &self.ip_list {
+                for allow_ip in ALLOW_IP.read().unwrap().iter() {
+                    let to_addr = SockAddr::from(SocketAddr::new((*allow_ip).into(), SSDP_PORT));
+                    self.udp_socket
+                        .send_to(
+                            resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
+                            &to_addr,
+                        )
+                        .expect("send_socket send_to error");
+                }
+            }
+            // println!("sendsize = {size}, resp = {resp}");
+            // self.send_socket
+            //     .send_to(resp.as_bytes(), self.sock_addr.as_socket().unwrap())
+            //     .expect("send error");
         }
     }
 
@@ -147,12 +166,13 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
             return;
         };
         if method[0] == "NOTIFY" {
-            // println!("result = \n{}", result);
+            // println!("NOTIFY Result = \n{}", result);
             // println!("SSDP command {} {} - from {}", method[0], method[1], src);
         }
         if method[0] == "M-SEARCH" && method[1] == "*" {
             // println!("M-SEARCH *");
             // println!("M-SEARCH * Result = \n{} from ip = {}", result, src);
+            // self.discovery_request(headers, src);
             match src.ip() {
                 IpAddr::V4(ipv4) => {
                     if ALLOW_IP.read().unwrap().contains(&ipv4) {
@@ -195,11 +215,14 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
                         let mx = headers["mx"].parse::<i32>().unwrap();
                         let _delay = rand::thread_rng().gen_range(0..mx);
                         let (host, _port) = (addr.ip(), addr.port());
-
                         for (ip, netmask) in &self.ip_list {
-                            if get_subnet_ip(*ip, *netmask) == get_subnet_ip(*host, *netmask) {
+                            if get_subnet_ip(ip, netmask) == get_subnet_ip(host, netmask) {
                                 // let response = response.replace("{ip}", &ip.to_string());
+                                let response = response.replace("{local_ip}", &ip.to_string());
                                 // println!("send to = {} \n to host = {}", response, addr);
+                                // self.udp_socket
+                                //     .send_to(response.as_bytes(), &SockAddr::from(addr))
+                                //     .unwrap();
                                 self.send_socket.send_to(response.as_bytes(), addr).unwrap();
                                 break;
                             }
@@ -253,7 +276,7 @@ impl<'a> Ssdp<'a> {
         }
     }
 
-    pub fn register(self, local_ip: Ipv4Addr) -> Self {
+    pub fn register(self) -> Self {
         for device in &self.devices {
             let st = if device.len() <= 43 {
                 device.clone()
@@ -263,7 +286,7 @@ impl<'a> Ssdp<'a> {
             self.server.write().unwrap().register(
                 device,
                 st,
-                format!("http://{}:{}/description.xml", local_ip, SERVER_PORT),
+                format!("http://{{local_ip}}:{}/description.xml", SERVER_PORT),
                 Some("Linux/4.9.113 HTTP/1.0".to_string()),
                 Some("max-age=66".to_string()),
             );
@@ -278,7 +301,7 @@ impl<'a> Ssdp<'a> {
     }
 }
 
-fn get_subnet_ip(ip: Ipv4Addr, netmask: Ipv4Addr) -> Ipv4Addr {
+pub fn get_subnet_ip(ip: &Ipv4Addr, netmask: &Ipv4Addr) -> Ipv4Addr {
     let ip = ip
         .octets()
         .into_iter()

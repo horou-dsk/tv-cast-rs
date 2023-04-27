@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ycsoft.smartbox.avtransport";
+option java_outer_classname = "AVTransportProto";
+
+package avtransport;
+
+service AVTransport {
+  rpc SetUri (AvUri) returns (Empty) {}
+  rpc GetPosition (Empty) returns (PositionInfo) {}
+  rpc Play(Empty) returns (Empty) {}
+  rpc Stop(Empty) returns (Empty) {}
+  rpc Pause(Empty) returns (Empty) {}
+  rpc Seek(SeekPosition) returns (Empty) {}
+  rpc GetTransportInfo(Empty) returns (TransportInfo) {}
+}
+
+message Empty {}
+
+message AvUri {
+  string uri = 1;
+  string uriMetaData = 2;
+}
+
+message PositionInfo {
+  string trackDuration = 1;
+  string relTime = 2;
+}
+
+message SeekPosition {
+  string target = 1;
+}
+
+message TransportInfo {
+  string currentTransportState = 1;
+}

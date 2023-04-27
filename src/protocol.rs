@@ -22,7 +22,10 @@ impl DLNAHandler {
             serial_num = 1024,
             header_extra = "",
             service_extra = "",
-            url_base = format!("http://{}:{SERVER_PORT}", ip)
+            url_base = format!(
+                "http://{}:{SERVER_PORT}",
+                default_net::interface::get_local_ipaddr().unwrap_or(ip.into())
+            )
         );
         Self {
             description,

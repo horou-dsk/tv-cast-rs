@@ -9,10 +9,15 @@ pub fn parse_header(result: &str) -> Option<(Vec<String>, HashMap<String, String
         if line.is_empty() {
             break;
         }
-        let mut split = line.split(": ");
-        let Some(key) = split.next().map(|v| v.to_lowercase()) else {return None};
-        let Some(value) = split.next().map(|v| v.to_string()) else {return None};
-        map.insert(key, value);
+        if let Some((key, value)) = line.split_once(':') {
+            let key = key.to_lowercase();
+            let value = if &value[..1] == " " {
+                value[1..].to_string()
+            } else {
+                value.to_string()
+            };
+            map.insert(key, value);
+        }
     }
     Some((method, map))
 }

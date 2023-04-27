@@ -1,18 +1,37 @@
 use std::net::Ipv4Addr;
 
-pub fn get_ip() -> (Ipv4Addr, Ipv4Addr) {
-    if let Ok(interface) = default_net::get_default_interface() {
-        let mut ip = Ipv4Addr::LOCALHOST;
-        let mut netmask = Ipv4Addr::new(255, 255, 255, 0);
-        for ipv4 in interface.ipv4 {
-            ip = ipv4.addr;
-            netmask = ipv4.netmask;
-        }
-        println!("inteface \nip = {}\nnetmask = {}", ip, netmask);
-        (ip, netmask)
+pub fn get_ip() -> Result<Vec<(Ipv4Addr, Ipv4Addr)>, String> {
+    if cfg!(windows) {
+        let default_interface = default_net::get_default_interface()?;
+        Ok(default_interface
+            .ipv4
+            .into_iter()
+            .map(|ip| (ip.addr, ip.netmask))
+            .collect())
     } else {
-        panic!("get default interface Error");
+        let mut ip_list = Vec::new();
+        let interfaces = default_net::get_interfaces();
+        for interface in interfaces {
+            if interface.if_type == default_net::interface::InterfaceType::Ethernet {
+                for ip in interface.ipv4 {
+                    ip_list.push((ip.addr, ip.netmask));
+                }
+            }
+        }
+        Ok(ip_list)
     }
+    // if let Ok(interface) = default_net::get_default_interface() {
+    //     let mut ip = Ipv4Addr::LOCALHOST;
+    //     let mut netmask = Ipv4Addr::new(255, 255, 255, 0);
+    //     for ipv4 in interface.ipv4 {
+    //         ip = ipv4.addr;
+    //         netmask = ipv4.netmask;
+    //     }
+    //     println!("inteface \nip = {}\nnetmask = {}", ip, netmask);
+    //     (ip, netmask)
+    // } else {
+    //     panic!("get default interface Error");
+    // }
     // match (
     //     default_net::get_default_gateway(),
     //     default_net::get_default_interface(),
