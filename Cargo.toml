@@ -11,7 +11,7 @@ actix-web = {version = "4"}
 chrono = "0.4.24"
 default-net = "0.14"
 futures = "0.3.28"
-local-ip-address = {path = "../local-ip-address"}
+# local-ip-address = {path = "../local-ip-address"}
 pin-project-lite = "0.2.9"
 prost = "0.11"
 quick-xml = {version = "0.28.1", features = ["serialize"]}

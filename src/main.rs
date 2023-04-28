@@ -1,8 +1,6 @@
-use actix_web::{
-    get, http::header, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder,
-};
+use actix_web::{get, http::header, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use hztp::{
-    actions::avtransport::rpc::av_transport_client::AvTransportClient,
+    actions::rpc_action::rpc::av_transport_client::AvTransportClient,
     constant::{ANDROID_ADDR, SERVER_PORT},
     dlna_init, ip_online_check,
     protocol::DLNAHandler,
@@ -10,19 +8,19 @@ use hztp::{
     ssdp::ALLOW_IP,
 };
 use serde::{Deserialize, Serialize};
-use std::{net::Ipv4Addr, process::Command, sync::Arc, time::Duration};
+use std::{net::Ipv4Addr, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 
 #[get("/")]
 async fn hello() -> impl Responder {
-    Command::new("am")
-        .args([
-            "start",
-            "-n",
-            "com.droidlogic.mboxlauncher/com.droidlogic.mboxlauncher.Launcher",
-        ])
-        .status()
-        .expect("错误...");
+    // Command::new("am")
+    //     .args([
+    //         "start",
+    //         "-n",
+    //         "com.droidlogic.mboxlauncher/com.droidlogic.mboxlauncher.Launcher",
+    //     ])
+    //     .status()
+    //     .expect("错误...");
     HttpResponse::Found()
         .append_header((header::LOCATION, "https://niconico-ni.com"))
         .finish()
@@ -55,17 +53,17 @@ struct Sh {
     sh: String,
 }
 
-#[post("/sh")]
-async fn sh(data: web::Json<Sh>) -> impl Responder {
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(&data.sh)
-        .output()
-        .expect("错误...");
-    let stdout = output.stdout;
-    let output = String::from_utf8_lossy(&stdout);
-    HttpResponse::Ok().body(output.to_string())
-}
+// #[post("/sh")]
+// async fn sh(data: web::Json<Sh>) -> impl Responder {
+//     let output = Command::new("sh")
+//         .arg("-c")
+//         .arg(&data.sh)
+//         .output()
+//         .expect("错误...");
+//     let stdout = output.stdout;
+//     let output = String::from_utf8_lossy(&stdout);
+//     HttpResponse::Ok().body(output.to_string())
+// }
 
 #[get("/description.xml")]
 async fn description(dlna: web::Data<Arc<DLNAHandler>>) -> impl Responder {
@@ -83,7 +81,7 @@ async fn main() -> std::io::Result<()> {
     let name = args.next().expect("缺少投屏名称参数！");
     tokio::spawn(async {
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             if let Err(err) = ip_online_check().await {
                 println!("检查ip地址是否在线失败！ error = {:?}", err);
             }
@@ -96,10 +94,10 @@ async fn main() -> std::io::Result<()> {
         format!("http://{}", ANDROID_ADDR)
     };
     let rpc_client = loop {
-        tokio::time::sleep(Duration::from_secs(3)).await;
         if let Ok(client) = AvTransportClient::connect(connect_uri.clone()).await {
             break client;
         }
+        tokio::time::sleep(Duration::from_secs(2)).await;
     };
     let rpc_client = Arc::new(Mutex::new(rpc_client));
 
@@ -109,7 +107,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(rpc_client.clone()))
             .service(hello)
             .route("/ip", web::get().to(bind_ip))
-            .service(sh)
+            // .service(sh)
             .service(description)
             .configure(routers::dlna::config)
             .route("/hey", web::get().to(manual_hello))

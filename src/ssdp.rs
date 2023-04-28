@@ -189,7 +189,7 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
         }
     }
 
-    pub fn discovery_request(&self, headers: HashMap<String, String>, src: SocketAddr) {
+    pub fn discovery_request(&self, headers: HashMap<String, &str>, src: SocketAddr) {
         if let SocketAddr::V4(addr) = src {
             for v in self.known.values() {
                 if v["ST"] == headers["st"] || headers["st"] == "ssdp:all" {

@@ -1,9 +1,20 @@
+use actix_web::{http::header, HttpResponse};
 use quick_xml::{de::from_str, events::Event, Error, Reader};
 use serde::Deserialize;
+
+const XML_ROOT: &str = r#"<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1"><s:Body>{body_content}</s:Body></s:Envelope>"#;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetVolume {
+    pub channel: String,
+    pub desired_volume: i32,
+}
 
 #[derive(Debug, Deserialize)]
 pub enum RenderingControlAction {
     GetVolume,
+    SetVolume(SetVolume),
 }
 
 impl RenderingControlAction {
@@ -26,5 +37,30 @@ impl RenderingControlAction {
             }
         }
         Err(Error::TextNotFound)
+    }
+}
+
+pub struct RenderingControlResponse;
+
+impl RenderingControlResponse {
+    pub fn default_ok(action: &str) -> HttpResponse {
+        HttpResponse::Ok()
+            .append_header((header::CONTENT_TYPE, "text/xml"))
+            .body(XML_ROOT.replace(
+                "{body_content}",
+                &format!(
+                    r#"<u:{action}Response xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1"/>"#
+                ),
+            ))
+    }
+
+    pub fn err(code: u16, err_msg: &str) -> HttpResponse {
+        HttpResponse::InternalServerError()
+            .append_header((header::CONTENT_TYPE, "text/xml"))
+            .body(format!(
+                include_str!("./xml/invalid_action.xml"),
+                code = code,
+                err_msg = err_msg
+            ))
     }
 }

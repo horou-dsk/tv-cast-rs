@@ -36,3 +36,4 @@ macro_rules! xml_response {
 
 pub mod avtransport;
 pub mod renderingcontrol;
+pub mod rpc_action;

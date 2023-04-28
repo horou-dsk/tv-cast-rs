@@ -8,7 +8,7 @@ use actix_web::{
     HttpRequest, HttpResponse, Responder,
 };
 
-use crate::actions::avtransport::{self, client::ClientData};
+use crate::actions::rpc_action::{self, ClientData};
 
 // const MAX_SIZE: usize = 262_144;
 
@@ -42,7 +42,7 @@ async fn avtransport_action(
     client: ClientData,
 ) -> impl Responder {
     let result = String::from_utf8_lossy(&bytes);
-    avtransport::client::on_action(&result, request, client).await
+    rpc_action::on_action(&result, request, client).await
 }
 
 async fn avtransport_event(request: HttpRequest) -> impl Responder {
@@ -78,20 +78,16 @@ async fn rendering_control_xml() -> impl Responder {
 }
 
 #[post("/action")]
-async fn rendering_control_action(_request: HttpRequest, _bytes: web::Bytes) -> impl Responder {
-    // let result = String::from_utf8_lossy(&bytes);
-    // println!(
-    //     "\nRenderingControl SOAPACTION = {:?}",
-    //     request.headers().get("SOAPACTION")
-    // );
-    // println!("\nrendering_control_action = \n{}\n", result);
-    HttpResponse::InternalServerError()
-        .append_header((header::CONTENT_TYPE, "text/xml"))
-        .body(format!(
-            include_str!("../actions/xml/invalid_action.xml"),
-            code = 401,
-            err_msg = "Invalid Action"
-        ))
+async fn rendering_control_action(bytes: web::Bytes, client: ClientData) -> impl Responder {
+    let result = String::from_utf8_lossy(&bytes);
+    rpc_action::on_render_control_action(&result, client).await
+    // HttpResponse::InternalServerError()
+    //     .append_header((header::CONTENT_TYPE, "text/xml"))
+    //     .body(format!(
+    //         include_str!("../actions/xml/invalid_action.xml"),
+    //         code = 401,
+    //         err_msg = "Invalid Action"
+    //     ))
 }
 
 pub fn config(configure: &mut ServiceConfig) {

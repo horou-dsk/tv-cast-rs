@@ -52,7 +52,7 @@ pub fn dlna_init(name: String) -> std::io::Result<DLNAHandler> {
         .parse::<SocketAddr>()
         .unwrap();
     set_resue_upd(&udp_socket)?;
-    udp_socket.set_multicast_loop_v4(false).unwrap();
+    udp_socket.set_multicast_loop_v4(false)?;
     let address: SockAddr = address.into();
     udp_socket.bind(&address)?;
 
@@ -81,14 +81,16 @@ pub fn dlna_init(name: String) -> std::io::Result<DLNAHandler> {
         let server = ssdp.server.clone();
         thread::Builder::new()
             .name("ssdp recv".to_string())
-            .spawn(move || loop {
+            .spawn(move || {
                 let mut buf = [MaybeUninit::uninit(); 1024];
-                let (amt, src) = udp_socket.recv_from(&mut buf).expect("recv_from error");
-                let buf = unsafe { MaybeUninit::slice_assume_init_ref(&buf[..amt]) };
-                server
-                    .read()
-                    .unwrap()
-                    .datagram_received(buf, src.as_socket().unwrap());
+                loop {
+                    let (amt, src) = udp_socket.recv_from(&mut buf).expect("recv_from error");
+                    let buf = unsafe { MaybeUninit::slice_assume_init_ref(&buf[..amt]) };
+                    server
+                        .read()
+                        .unwrap()
+                        .datagram_received(buf, src.as_socket().unwrap());
+                }
             })?;
         thread::Builder::new()
             .name("ssdp notify".to_string())
@@ -118,8 +120,8 @@ pub async fn ip_online_check() -> std::io::Result<()> {
             let mut pinger = client
                 .pinger(std::net::IpAddr::V4(ip), PingIdentifier(rand::random()))
                 .await;
-            pinger.timeout(Duration::from_secs(5));
-            for i in 0..3 {
+            pinger.timeout(Duration::from_secs(30));
+            for i in 0..2 {
                 if let Err(err) = pinger.ping(PingSequence(i), &payload).await {
                     println!("ping error {ip} {err:?}");
                 } else {

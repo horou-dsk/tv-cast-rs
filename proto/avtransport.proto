@@ -14,6 +14,7 @@ service AVTransport {
   rpc Pause(Empty) returns (Empty) {}
   rpc Seek(SeekPosition) returns (Empty) {}
   rpc GetTransportInfo(Empty) returns (TransportInfo) {}
+  rpc SetVolume(Volume) returns (Empty) {}
 }
 
 message Empty {}
@@ -34,4 +35,9 @@ message SeekPosition {
 
 message TransportInfo {
   string currentTransportState = 1;
+}
+
+message Volume {
+  string channel = 1;
+  int32 desiredVolume = 2;
 }
