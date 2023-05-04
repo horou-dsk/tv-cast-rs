@@ -77,7 +77,6 @@ async fn main() -> std::io::Result<()> {
     if !cfg!(windows) {
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
-    println!("Starting Server...");
     let mut args = std::env::args();
     args.next();
     let name = args.next().expect("缺少投屏名称参数！");
@@ -102,6 +101,8 @@ async fn main() -> std::io::Result<()> {
         tokio::time::sleep(Duration::from_secs(2)).await;
     };
     let rpc_client = Arc::new(Mutex::new(rpc_client));
+
+    println!("Starting Server...");
 
     HttpServer::new(move || {
         App::new()

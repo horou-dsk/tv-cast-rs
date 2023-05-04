@@ -102,10 +102,10 @@ impl<'a> SSDPServer<'a> {
             // }
 
             for (ip, _) in &self.ip_list {
-                // self.send_socket
+                // self.udp_socket
                 //     .send_to(
                 //         resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
-                //         self.sock_addr.as_socket().unwrap(),
+                //         &self.sock_addr,
                 //     )
                 //     .expect("send_socket send_to error");
                 for allow_ip in ALLOW_IP.read().unwrap().iter() {
