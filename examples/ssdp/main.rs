@@ -3,13 +3,16 @@
 
 use std::{
     mem::MaybeUninit,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{Ipv4Addr, SocketAddr},
     sync::Arc,
     thread,
     time::Duration,
 };
 
-use hztp::constant::{SSDP_ADDR, SSDP_PORT};
+use hztp::{
+    constant::{SSDP_ADDR, SSDP_PORT},
+    setting,
+};
 use socket2::{Domain, Protocol, Socket, Type};
 
 fn main() -> std::io::Result<()> {
@@ -21,16 +24,18 @@ fn main() -> std::io::Result<()> {
     let udp_socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     udp_socket.set_reuse_address(true)?;
     // udp_socket.set_multicast_loop_v4(false)?;
-    let ip = local_ip_address::local_ip().unwrap();
-    println!("local_ip = {ip}");
+    // let ip = IpAddr::V4(Ipv4Addr::LOCALHOST); // local_ip_address::local_ip().unwrap();
+    // println!("local_ip = {ip}");
     // let local_addr = SocketAddr::new(ip, 15642);
     // udp_socket.bind(&SockAddr::from(local_addr))?;
     udp_socket.bind(&sock_addr)?;
     // let udp_socket = UdpSocket::bind("0.0.0.0:1900")?;
     // udp_socket.set_multicast_loop_v4(false)?;
-    if let IpAddr::V4(ip) = ip {
-        if let Err(err) = udp_socket.join_multicast_v4(&ip_addr, &ip) {
-            println!("join_multicast_v4 error = {:?}", err);
+    let ip_list = setting::get_ip().unwrap();
+    for local_ip in &ip_list {
+        println!("local_ip = {local_ip:?}");
+        if let Err(err) = udp_socket.join_multicast_v4(&ip_addr, &local_ip.0) {
+            println!("1.join_multicast_v4 error = {:?}", err);
         }
     }
 
@@ -47,6 +52,11 @@ fn main() -> std::io::Result<()> {
             let (size, src) = udp_socket.recv_from(&mut buf).unwrap();
             let buf = unsafe { MaybeUninit::slice_assume_init_ref(&buf[..size]) };
             let result = String::from_utf8_lossy(buf);
+            // println!(
+            //     "NOTIFY ===========Result = \n{} from ip = {:?}",
+            //     result,
+            //     src.as_socket()
+            // );
             if result.starts_with("NOTIFY") && result.contains("41937") {
                 println!(
                     "NOTIFY ===========Result = \n{} from ip = {:?}",

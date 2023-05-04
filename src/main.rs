@@ -74,7 +74,9 @@ async fn description(dlna: web::Data<Arc<DLNAHandler>>) -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    if !cfg!(windows) {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
     println!("Starting Server...");
     let mut args = std::env::args();
     args.next();

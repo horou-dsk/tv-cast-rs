@@ -14,8 +14,7 @@ use crate::{
     header::parse_header,
 };
 
-pub static ALLOW_IP: LazyLock<RwLock<Vec<Ipv4Addr>>> =
-    LazyLock::new(|| RwLock::new(vec![Ipv4Addr::new(192, 169, 1, 46)]));
+pub static ALLOW_IP: LazyLock<RwLock<Vec<Ipv4Addr>>> = LazyLock::new(|| RwLock::new(vec![]));
 
 #[derive(Clone)]
 pub struct SSDPServer<'a> {
@@ -103,8 +102,16 @@ impl<'a> SSDPServer<'a> {
             // }
 
             for (ip, _) in &self.ip_list {
+                // self.send_socket
+                //     .send_to(
+                //         resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
+                //         self.sock_addr.as_socket().unwrap(),
+                //     )
+                //     .expect("send_socket send_to error");
                 for allow_ip in ALLOW_IP.read().unwrap().iter() {
-                    let to_addr = SockAddr::from(SocketAddr::new((*allow_ip).into(), SSDP_PORT));
+                    let st_addr = SocketAddr::new((*allow_ip).into(), SSDP_PORT);
+                    let to_addr = SockAddr::from(st_addr);
+                    // println!("Notify to = {}", st_addr);
                     self.udp_socket
                         .send_to(
                             resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
@@ -185,7 +192,7 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
         } else if method[0] == "NOTIFY" && method[1] == "*" {
         } else {
             println!("result = \n{}", result);
-            println!("Unknown SSDP command {} {}", method[0], method[1]);
+            println!("Unknown SSDP command {:?}", method);
         }
     }
 
