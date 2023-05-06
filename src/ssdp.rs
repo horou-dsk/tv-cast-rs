@@ -102,23 +102,23 @@ impl<'a> SSDPServer<'a> {
             // }
 
             for (ip, _) in &self.ip_list {
-                // self.udp_socket
-                //     .send_to(
-                //         resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
-                //         &self.sock_addr,
-                //     )
-                //     .expect("send_socket send_to error");
-                for allow_ip in ALLOW_IP.read().unwrap().iter() {
-                    let st_addr = SocketAddr::new((*allow_ip).into(), SSDP_PORT);
-                    let to_addr = SockAddr::from(st_addr);
-                    // println!("Notify to = {}", st_addr);
-                    self.udp_socket
-                        .send_to(
-                            resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
-                            &to_addr,
-                        )
-                        .expect("send_socket send_to error");
-                }
+                self.udp_socket
+                    .send_to(
+                        resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
+                        &self.sock_addr,
+                    )
+                    .expect("send_socket send_to error");
+                // for allow_ip in ALLOW_IP.read().unwrap().iter() {
+                //     let st_addr = SocketAddr::new((*allow_ip).into(), SSDP_PORT);
+                //     let to_addr = SockAddr::from(st_addr);
+                //     // println!("Notify to = {}", st_addr);
+                //     self.udp_socket
+                //         .send_to(
+                //             resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
+                //             &to_addr,
+                //         )
+                //         .expect("send_socket send_to error");
+                // }
             }
             // println!("sendsize = {size}, resp = {resp}");
             // self.send_socket

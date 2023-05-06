@@ -13,17 +13,24 @@ use hztp::{
     constant::{SSDP_ADDR, SSDP_PORT},
     setting,
 };
-use socket2::{Domain, Protocol, Socket, Type};
+use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
 fn main() -> std::io::Result<()> {
     let ip_addr = SSDP_ADDR.parse::<Ipv4Addr>().unwrap();
-    let sock_addr = format!("0.0.0.0:{}", SSDP_PORT)
+    println!("...");
+    let mut args = std::env::args();
+    args.next();
+    let port = args
+        .next()
+        .map(|port| port.parse().unwrap())
+        .unwrap_or(1900);
+    let sock_addr = format!("0.0.0.0:{}", port)
         .parse::<SocketAddr>()
         .unwrap()
         .into();
-    let udp_socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-    udp_socket.set_reuse_address(true)?;
-    // udp_socket.set_multicast_loop_v4(false)?;
+    let udp_socket = Socket::new(Domain::IPV4, Type::DGRAM, None)?;
+    // udp_socket.set_reuse_address(true)?;
+    // udp_socket.set_reuse_port(true)?;
     // let ip = IpAddr::V4(Ipv4Addr::LOCALHOST); // local_ip_address::local_ip().unwrap();
     // println!("local_ip = {ip}");
     // let local_addr = SocketAddr::new(ip, 15642);
@@ -31,6 +38,7 @@ fn main() -> std::io::Result<()> {
     udp_socket.bind(&sock_addr)?;
     // let udp_socket = UdpSocket::bind("0.0.0.0:1900")?;
     // udp_socket.set_multicast_loop_v4(false)?;
+    udp_socket.set_multicast_loop_v4(false)?;
     let ip_list = setting::get_ip().unwrap();
     for local_ip in &ip_list {
         println!("local_ip = {local_ip:?}");
@@ -57,15 +65,16 @@ fn main() -> std::io::Result<()> {
             //     result,
             //     src.as_socket()
             // );
-            if result.starts_with("NOTIFY") && result.contains("41937") {
-                println!(
-                    "NOTIFY ===========Result = \n{} from ip = {:?}",
-                    result,
-                    src.as_socket()
-                );
-            }
-            if !result.starts_with("NOTIFY") && !result.starts_with("M-SEARCH")
-            // && result.contains("41937")
+            // if result.starts_with("NOTIFY") && result.contains("41937") {
+            //     println!(
+            //         "NOTIFY ===========Result = \n{} from ip = {:?}",
+            //         result,
+            //         src.as_socket()
+            //     );
+            // }
+            if !result.starts_with("NOTIFY")
+                && !result.starts_with("M-SEARCH")
+                && result.contains("41937")
             {
                 println!(
                     "M-SEARCH ===========Result = \n{} from ip = {:?}",
@@ -84,8 +93,13 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
 
 "#;
             // println!("{}", String::from_utf8_lossy(buf));
-            // socket.send_to(buf, &sock_addr).unwrap();
-            // println!("send ok");
+            _socket
+                .send_to(
+                    _buf,
+                    &SockAddr::from(SocketAddr::new("192.169.1.23".parse().unwrap(), SSDP_PORT)),
+                )
+                .unwrap();
+            println!("send ok");
         });
         t.join().unwrap();
     }

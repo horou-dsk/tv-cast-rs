@@ -95,7 +95,7 @@ pub fn dlna_init(name: String) -> std::io::Result<DLNAHandler> {
         thread::Builder::new()
             .name("ssdp notify".to_string())
             .spawn(move || loop {
-                thread::sleep(Duration::from_secs(2));
+                thread::sleep(Duration::from_secs(3));
                 ssdp.do_notify();
             })?;
     }

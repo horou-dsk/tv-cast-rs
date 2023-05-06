@@ -12,7 +12,10 @@ pub fn get_ip() -> Result<Vec<(Ipv4Addr, Ipv4Addr)>, String> {
         let mut ip_list = Vec::new();
         let interfaces = default_net::get_interfaces();
         for interface in interfaces {
-            if interface.if_type == default_net::interface::InterfaceType::Ethernet {
+            // println!("{:?}", interface);
+            if interface.if_type == default_net::interface::InterfaceType::Ethernet
+                || interface.if_type == default_net::interface::InterfaceType::Wireless80211
+            {
                 for ip in interface.ipv4 {
                     ip_list.push((ip.addr, ip.netmask));
                 }
