@@ -13,7 +13,7 @@ use hztp::{
     constant::{SSDP_ADDR, SSDP_PORT},
     setting,
 };
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use socket2::{Domain, SockAddr, Socket, Type};
 
 fn main() -> std::io::Result<()> {
     let ip_addr = SSDP_ADDR.parse::<Ipv4Addr>().unwrap();

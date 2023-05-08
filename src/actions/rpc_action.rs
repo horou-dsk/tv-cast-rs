@@ -17,9 +17,9 @@ use self::rpc::Volume;
 
 use super::{
     avtransport::{AVTransportAction, AVTransportResponse, GetTransportInfoResponse},
-    renderingcontrol::{RenderingControlAction, RenderingControlResponse},
+    renderingcontrol::{GetVolumeResponse, RenderingControlAction, RenderingControlResponse},
 };
-use rpc::{av_transport_client::AvTransportClient, AvUri, Empty, SeekPosition};
+use rpc::{av_transport_client::AvTransportClient, AvUri, Empty, SeekPosition, VolumeMute};
 
 pub type ClientData = web::Data<Arc<Mutex<AvTransportClient<Channel>>>>;
 
@@ -190,7 +190,10 @@ pub async fn on_action(xml_text: &str, request: HttpRequest, client: ClientData)
         //         AVTransportResponse::default_ok("GetMediaInfo")
         //     }
         // }
-        _ => AVTransportResponse::err(401, "Invalid Action"),
+        _ => {
+            println!("未实现Action = \n{}\n", xml_text);
+            AVTransportResponse::err(401, "Invalid Action")
+        }
     }
 }
 
@@ -207,6 +210,25 @@ pub async fn on_render_control_action(xml_text: &str, client: ClientData) -> Htt
                 .unwrap();
             RenderingControlResponse::default_ok("SetVolume")
         }
-        _ => RenderingControlResponse::err(401, "Invalid Action"),
+        Ok(RenderingControlAction::GetVolume) => {
+            let vol = client.get_volume(Empty {}).await.unwrap();
+            RenderingControlResponse::ok(GetVolumeResponse {
+                current_volume: vol.into_inner().current_volume,
+                ..Default::default()
+            })
+        }
+        Ok(RenderingControlAction::SetMute(set_mute)) => {
+            client
+                .set_mute(VolumeMute {
+                    desired_mute: set_mute.desired_mute,
+                })
+                .await
+                .ok();
+            RenderingControlResponse::default_ok("SetMute")
+        }
+        _ => {
+            println!("未实现Action = \n{}\n", xml_text);
+            RenderingControlResponse::err(401, "Invalid Action")
+        }
     }
 }

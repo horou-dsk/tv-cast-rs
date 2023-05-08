@@ -1,6 +1,8 @@
 use actix_web::{http::header, HttpResponse};
-use quick_xml::{de::from_str, events::Event, Error, Reader};
-use serde::Deserialize;
+use quick_xml::{de::from_str, events::Event, se::Serializer, Error, Reader};
+use serde::{Deserialize, Serialize};
+
+use super::XmlToString;
 
 const XML_ROOT: &str = r#"<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1"><s:Body>{body_content}</s:Body></s:Envelope>"#;
 
@@ -12,9 +14,16 @@ pub struct SetVolume {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetMute {
+    pub desired_mute: bool,
+}
+
+#[derive(Debug, Deserialize)]
 pub enum RenderingControlAction {
     GetVolume,
     SetVolume(SetVolume),
+    SetMute(SetMute),
 }
 
 impl RenderingControlAction {
@@ -40,6 +49,14 @@ impl RenderingControlAction {
     }
 }
 
+rendering_control_xml_response! {
+    #[derive(Debug, Serialize)]
+    #[serde(rename_all = "PascalCase")]
+    GetVolumeResponse {
+        pub current_volume: i32,
+    }
+}
+
 pub struct RenderingControlResponse;
 
 impl RenderingControlResponse {
@@ -52,6 +69,12 @@ impl RenderingControlResponse {
                     r#"<u:{action}Response xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1"/>"#
                 ),
             ))
+    }
+
+    pub fn ok(xml_body: impl XmlToString) -> HttpResponse {
+        HttpResponse::Ok()
+            .append_header((header::CONTENT_TYPE, "text/xml"))
+            .body(XML_ROOT.replace("{body_content}", &xml_body.xml()))
     }
 
     pub fn err(code: u16, err_msg: &str) -> HttpResponse {

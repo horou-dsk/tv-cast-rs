@@ -3,13 +3,13 @@ pub trait XmlToString {
 }
 
 macro_rules! xml_response {
-    ($(#[$attrs: meta])* $name: ident$(<$($ty_lifetimes:lifetime)*>)? {
+    ($xmlns: expr, $(#[$attrs: meta])* $name: ident$(<$($ty_lifetimes:lifetime)*>)? {
         $($(#[$field_attrs: meta])* $fw: ident $field_name: ident: $tye: ty,)*
     }) => {
         $(#[$attrs])*
         pub struct $name$(<$($ty_lifetimes)*>)? {
             #[serde(rename = "@xmlns:u")]
-            pub xmlns: &'a str,
+            pub xmlns: &'static str,
             $($(#[$field_attrs])*
             $fw $field_name: $tye,)*
         }
@@ -17,7 +17,7 @@ macro_rules! xml_response {
         impl$(<$($ty_lifetimes)*>)? Default for $name$(<$($ty_lifetimes)*>)? {
             fn default() -> Self {
                 Self {
-                    xmlns: "urn:schemas-upnp-org:service:AVTransport:1",
+                    xmlns: $xmlns,
                     $($field_name: Default::default(),)*
                 }
             }
@@ -31,6 +31,18 @@ macro_rules! xml_response {
                 buf
             }
         }
+    };
+}
+
+macro_rules! avtransport_xml_response {
+    ($($tts:tt)*) => {
+        xml_response!{"urn:schemas-upnp-org:service:AVTransport:1", $($tts)*}
+    };
+}
+
+macro_rules! rendering_control_xml_response {
+    ($($tts:tt)*) => {
+        xml_response!{"urn:schemas-upnp-org:service:RenderingControl:1", $($tts)*}
     };
 }
 

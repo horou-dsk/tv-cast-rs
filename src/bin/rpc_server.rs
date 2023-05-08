@@ -1,6 +1,6 @@
 use avtransport::{
     av_transport_server::{AvTransport, AvTransportServer},
-    AvUri, Empty, PositionInfo, SeekPosition, TransportInfo, Volume,
+    AvUri, Empty, PositionInfo, SeekPosition, TransportInfo, Volume, VolumeInfo, VolumeMute,
 };
 use tonic::{transport::Server, Request, Response, Status};
 
@@ -48,6 +48,14 @@ impl AvTransport for MyAvTransport {
     }
 
     async fn set_volume(&self, _request: Request<Volume>) -> Result<Response<Empty>, Status> {
+        Ok(Response::new(Empty {}))
+    }
+
+    async fn get_volume(&self, _request: Request<Empty>) -> Result<Response<VolumeInfo>, Status> {
+        Err(Status::aborted(""))
+    }
+
+    async fn set_mute(&self, _request: Request<VolumeMute>) -> Result<Response<Empty>, Status> {
         Ok(Response::new(Empty {}))
     }
 }

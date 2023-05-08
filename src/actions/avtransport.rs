@@ -84,7 +84,7 @@ impl AVTransportAction {
     }
 }
 
-xml_response! {
+avtransport_xml_response! {
     #[derive(Debug, Serialize)]
     #[serde(rename_all = "PascalCase")]
     GetPositionInfoResponse<'a> {
@@ -100,7 +100,7 @@ xml_response! {
     }
 }
 
-xml_response! {
+avtransport_xml_response! {
     #[derive(Debug, Serialize)]
     #[serde(rename_all = "PascalCase")]
     GetTransportInfoResponse<'a> {
@@ -110,7 +110,7 @@ xml_response! {
     }
 }
 
-xml_response! {
+avtransport_xml_response! {
     #[derive(Debug, Serialize)]
     #[serde(rename_all = "PascalCase")]
     GetMediaInfoResponse<'a> {
