@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{Read, Write},
-    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{Arc, LazyLock, RwLock},
 };
 
@@ -23,7 +23,7 @@ pub struct SSDPServer<'a> {
     // ip_addr: Ipv4Addr,
     sock_addr: SockAddr,
     ip_list: Vec<(Ipv4Addr, Ipv4Addr)>,
-    send_socket: Arc<UdpSocket>,
+    send_socket: Arc<socket2::Socket>,
 }
 
 impl<'a> SSDPServer<'a> {
@@ -31,7 +31,9 @@ impl<'a> SSDPServer<'a> {
         let ssdp_addr = format!("{}:{}", SSDP_ADDR, SSDP_PORT)
             .parse::<SocketAddr>()
             .unwrap();
-        let send_socket = Arc::new(UdpSocket::bind(("0.0.0.0", 19565)).unwrap());
+        let send_socket =
+            socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
+        // let send_socket = Arc::new(UdpSocket::bind(("0.0.0.0", 19565)).unwrap());
         // send_socket
         //     .join_multicast_v4(&SSDP_ADDR.parse::<Ipv4Addr>().unwrap(), &local_ip)
         //     .unwrap();
@@ -42,7 +44,7 @@ impl<'a> SSDPServer<'a> {
             // ip_addr: SSDP_ADDR.parse::<Ipv4Addr>().unwrap(),
             ip_list: Vec::new(),
             sock_addr: ssdp_addr.into(),
-            send_socket,
+            send_socket: Arc::new(send_socket),
         }
     }
 
@@ -230,7 +232,9 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
                                 // self.udp_socket
                                 //     .send_to(response.as_bytes(), &SockAddr::from(addr))
                                 //     .unwrap();
-                                self.send_socket.send_to(response.as_bytes(), addr).unwrap();
+                                self.send_socket
+                                    .send_to(response.as_bytes(), &SockAddr::from(addr))
+                                    .unwrap();
                                 break;
                             }
                         }

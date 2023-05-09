@@ -13,6 +13,8 @@ default-net = "0.14"
 futures = "0.3.28"
 # local-ip-address = {path = "../local-ip-address"}
 pin-project-lite = "0.2.9"
+pnet = "0.33"
+pnet_datalink = "0.33"
 prost = "0.11"
 quick-xml = {version = "0.28.1", features = ["serialize"]}
 rand = "0.8.5"
