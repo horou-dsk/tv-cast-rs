@@ -1,20 +1,16 @@
-#![feature(maybe_uninit_slice)]
-
 use std::{
-    mem::MaybeUninit,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::IpAddr,
     process,
-    sync::Arc,
     thread,
+    time::Duration,
 };
 
 use pnet::packet::{
-    arp::{ArpHardwareTypes, ArpOperations, MutableArpPacket},
+    arp::{ArpHardwareTypes, ArpOperations, MutableArpPacket, ArpPacket},
     ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket},
     MutablePacket, Packet,
 };
-use pnet_datalink::{MacAddr, NetworkInterface};
-use socket2::Domain;
+use pnet_datalink::{DataLinkSender, MacAddr, NetworkInterface};
 
 fn main() -> std::io::Result<()> {
     let interfaces = pnet_datalink::interfaces();
@@ -27,40 +23,68 @@ fn main() -> std::io::Result<()> {
                 && !interface.is_loopback()
         })
         .collect();
-    let skt = socket2::Socket::new(
-        Domain::IPV4,
-        socket2::Type::RAW,
-        Some(socket2::Protocol::ICMPV4),
-    )?;
     let ifc = &selected_interfaces[0];
-    skt.bind(&SocketAddr::from((ifc.ips[0].ip(), 0)).into())?;
-    let skt = Arc::new(skt);
-    let recv_thread = {
-        let skt = skt.clone();
-        thread::spawn(move || {
-            let mut buf = [MaybeUninit::uninit(); 1024];
-            loop {
-                let (size, src) = skt.recv_from(&mut buf).unwrap();
-                let buf = unsafe { MaybeUninit::slice_assume_init_ref(&buf[..size]) };
-                println!("数据进入 size = {size}");
-                let ethernet_packet = match EthernetPacket::new(buf) {
-                    Some(packet) => packet,
-                    None => continue,
-                };
-                let is_arp_type = matches!(ethernet_packet.get_ethertype(), EtherTypes::Arp);
-                if is_arp_type {
-                    println!("收到一个arp响应 src = {:?}", src.as_socket());
-                    break;
-                }
-            }
-        })
+    let channel_config = pnet_datalink::Config {
+        read_timeout: Some(Duration::from_millis(500)),
+        ..pnet_datalink::Config::default()
     };
-    send_arp_packet(skt, ifc)?;
+    let pnet_datalink::Channel::Ethernet(tx, mut rx) = pnet_datalink::channel(ifc, channel_config)? else { 
+        eprintln!("Datalink channel creation failed ");
+        process::exit(1);
+    };
+    let recv_thread = thread::spawn(move || {
+        let mut timeout_num = 0;
+        loop {
+            if timeout_num >= 3 {
+                break;
+            }
+            let arp_buffer = match rx.next() {
+                Ok(buffer) => buffer,
+                Err(error) => {
+                    match error.kind() {
+                        // The 'next' call will only block the thread for a given
+                        // amount of microseconds. The goal is to avoid long blocks
+                        // due to the lack of packets received.
+                        std::io::ErrorKind::TimedOut => {
+                            timeout_num += 1;
+                            continue;
+                        },
+                        _ => {
+                            eprintln!("Failed to receive ARP requests ({})", error);
+                            process::exit(1);
+                        }
+                    };
+                }
+            };
+            let ethernet_packet = match EthernetPacket::new(arp_buffer) {
+                Some(packet) => packet,
+                None => continue,
+            };
+            let is_arp_type = matches!(ethernet_packet.get_ethertype(), EtherTypes::Arp);
+            if is_arp_type {
+                println!("收到一个arp响应");
+                let arp_packet = ArpPacket::new(&arp_buffer[MutableEthernetPacket::minimum_packet_size()..]);
+                if let Some(arp) = arp_packet {
+
+                    let sender_ipv4 = arp.get_sender_proto_addr();
+                    let sender_mac = arp.get_sender_hw_addr();
+
+                    println!("sender_ipv4 = {sender_ipv4}");
+                    println!("sender_mac = {sender_mac}");
+                }
+                break;
+            }
+        }
+    });
+    send_arp_packet(tx, ifc)?;
     recv_thread.join().unwrap();
     Ok(())
 }
 
-fn send_arp_packet(skt: Arc<socket2::Socket>, interface: &NetworkInterface) -> std::io::Result<()> {
+fn send_arp_packet(
+    mut tx: Box<dyn DataLinkSender>,
+    interface: &NetworkInterface,
+) -> std::io::Result<()> {
     let mut ethernet_buffer = [0u8; 42];
 
     let mut ethernet_packet =
@@ -104,13 +128,17 @@ fn send_arp_packet(skt: Arc<socket2::Socket>, interface: &NetworkInterface) -> s
     arp_packet.set_sender_hw_addr(source_mac);
     arp_packet.set_sender_proto_addr(source_ip);
     arp_packet.set_target_hw_addr(target_mac);
-    arp_packet.set_target_proto_addr("172.31.64.1".parse::<Ipv4Addr>().unwrap());
+    arp_packet.set_target_proto_addr(std::env::args().last().unwrap().parse().unwrap());
 
     ethernet_packet.set_payload(arp_packet.packet_mut());
 
     println!("source_ip = {}", source_ip);
 
-    skt.send(ethernet_packet.to_immutable().packet())?;
+    tx.send_to(
+        ethernet_packet.to_immutable().packet(),
+        Some(interface.clone()),
+    )
+    .unwrap()?;
     // skt.send_to(
     //     ethernet_packet.to_immutable().packet(),
     //     &SockAddr::from(SocketAddr::new(IpAddr::V4(source_ip), 2054)),
