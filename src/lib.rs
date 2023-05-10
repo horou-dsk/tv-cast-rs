@@ -15,7 +15,10 @@ use protocol::DLNAHandler;
 use ssdp::{Ssdp, ALLOW_IP};
 use surge_ping::{PingIdentifier, PingSequence};
 
-use crate::constant::{SSDP_ADDR, SSDP_PORT};
+use crate::{
+    constant::{SSDP_ADDR, SSDP_PORT},
+    net::arp::arp_scan,
+};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
 pub mod constant;
@@ -120,13 +123,14 @@ pub async fn ip_online_check() -> std::io::Result<()> {
             let mut pinger = client
                 .pinger(std::net::IpAddr::V4(ip), PingIdentifier(rand::random()))
                 .await;
-            pinger.timeout(Duration::from_secs(30));
-            for i in 0..2 {
-                if let Err(err) = pinger.ping(PingSequence(i), &payload).await {
-                    println!("ping error {ip} {err:?}");
-                } else {
-                    return (true, ip);
+            if pinger.ping(PingSequence(0), &payload).await.is_err() {
+                if let Ok((recv_ip, _)) = arp_scan(ip).await {
+                    if recv_ip == ip {
+                        return (true, ip);
+                    }
                 }
+            } else {
+                return (true, ip);
             }
             println!("剔除 device_ip = {ip}");
             (false, ip)
