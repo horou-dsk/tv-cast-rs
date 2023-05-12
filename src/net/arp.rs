@@ -30,7 +30,7 @@ pub async fn arp_scan(target_ip: Ipv4Addr) -> std::io::Result<(Ipv4Addr, MacAddr
             .unwrap()
             .ip() else {continue};
         let channel_config = pnet_datalink::Config {
-            read_timeout: Some(Duration::from_millis(500)),
+            read_timeout: Some(Duration::from_millis(1500)),
             ..pnet_datalink::Config::default()
         };
         let pnet_datalink::Channel::Ethernet(tx, mut rx) = pnet_datalink::channel(&selected_interface, channel_config)? else { 

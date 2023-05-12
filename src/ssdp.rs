@@ -23,7 +23,7 @@ pub struct SSDPServer<'a> {
     // ip_addr: Ipv4Addr,
     sock_addr: SockAddr,
     ip_list: Vec<(Ipv4Addr, Ipv4Addr)>,
-    send_socket: Arc<socket2::Socket>,
+    // send_socket: Arc<socket2::Socket>,
 }
 
 impl<'a> SSDPServer<'a> {
@@ -31,8 +31,8 @@ impl<'a> SSDPServer<'a> {
         let ssdp_addr = format!("{}:{}", SSDP_ADDR, SSDP_PORT)
             .parse::<SocketAddr>()
             .unwrap();
-        let send_socket =
-            socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
+        // let send_socket =
+        // socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
         // let send_socket = Arc::new(UdpSocket::bind(("0.0.0.0", 19565)).unwrap());
         // send_socket
         //     .join_multicast_v4(&SSDP_ADDR.parse::<Ipv4Addr>().unwrap(), &local_ip)
@@ -44,8 +44,14 @@ impl<'a> SSDPServer<'a> {
             // ip_addr: SSDP_ADDR.parse::<Ipv4Addr>().unwrap(),
             ip_list: Vec::new(),
             sock_addr: ssdp_addr.into(),
-            send_socket: Arc::new(send_socket),
+            // send_socket: Arc::new(send_socket),
         }
+    }
+
+    fn send_to(&self, buf: &[u8], addr: &SockAddr) {
+        // let udp_socket =
+        // socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
+        self.udp_socket.send_to(buf, addr).unwrap();
     }
 
     pub fn add_ip_list(&mut self, ip: (Ipv4Addr, Ipv4Addr)) {
@@ -102,14 +108,19 @@ impl<'a> SSDPServer<'a> {
             //         .send_to(resp.as_bytes(), &allow_addr.into())
             //         .expect("send error");
             // }
-
+            // if ALLOW_IP.read().unwrap().is_empty() {
+            //     return;
+            // }
             for (ip, _) in &self.ip_list {
-                self.udp_socket
-                    .send_to(
-                        resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
-                        &self.sock_addr,
-                    )
-                    .expect("send_socket send_to error");
+                self.send_to(
+                    resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
+                    &self.sock_addr,
+                );
+                // Self::send_to
+                //     .send_to(
+                //         resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
+                //         &self.sock_addr,
+                //     );
                 // for allow_ip in ALLOW_IP.read().unwrap().iter() {
                 //     let st_addr = SocketAddr::new((*allow_ip).into(), SSDP_PORT);
                 //     let to_addr = SockAddr::from(st_addr);
@@ -170,6 +181,9 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
 
     pub fn datagram_received(&self, data: &[u8], src: SocketAddr) {
         let result = String::from_utf8_lossy(data);
+        if result.starts_with("M-SEARCH") {
+            println!("M-SEARCH * Result = \n{} from ip = {}", result, src);
+        }
         let Some((method, headers)) = parse_header(&result) else {
             println!("Error Result = {}", result);
             return;
@@ -181,15 +195,15 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
         if method[0] == "M-SEARCH" && method[1] == "*" {
             // println!("M-SEARCH *");
             // println!("M-SEARCH * Result = \n{} from ip = {}", result, src);
-            // self.discovery_request(headers, src);
-            match src.ip() {
-                IpAddr::V4(ipv4) => {
-                    if ALLOW_IP.read().unwrap().contains(&ipv4) {
-                        self.discovery_request(headers, src);
-                    }
-                }
-                IpAddr::V6(_) => (),
-            }
+            self.discovery_request(headers, src);
+            // match src.ip() {
+            //     IpAddr::V4(ipv4) => {
+            //         if ALLOW_IP.read().unwrap().contains(&ipv4) {
+            //             self.discovery_request(headers, src);
+            //         }
+            //     }
+            //     IpAddr::V6(_) => (),
+            // }
             // unimplemented!()
         } else if method[0] == "NOTIFY" && method[1] == "*" {
         } else {
@@ -228,13 +242,13 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
                             if get_subnet_ip(ip, netmask) == get_subnet_ip(host, netmask) {
                                 // let response = response.replace("{ip}", &ip.to_string());
                                 let response = response.replace("{local_ip}", &ip.to_string());
+                                println!("send to host = {}", addr);
                                 // println!("send to = {} \n to host = {}", response, addr);
                                 // self.udp_socket
                                 //     .send_to(response.as_bytes(), &SockAddr::from(addr))
                                 //     .unwrap();
-                                self.send_socket
-                                    .send_to(response.as_bytes(), &SockAddr::from(addr))
-                                    .unwrap();
+                                self.send_to(response.as_bytes(), &SockAddr::from(addr));
+                                // Self::send_to(response.as_bytes(), &SockAddr::from(addr));
                                 break;
                             }
                         }
@@ -267,7 +281,7 @@ impl<'a> Ssdp<'a> {
             usn = uuid::Uuid::new_v4().to_string();
             f.write_all(usn.as_bytes()).unwrap();
         }
-
+        // let usn = uuid::Uuid::new_v4().to_string();
         println!("\nuuid = {}\n", usn);
 
         // let usn = uuid::Uuid::new_v4().to_string();
