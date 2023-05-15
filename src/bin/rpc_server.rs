@@ -62,7 +62,7 @@ impl AvTransport for MyAvTransport {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "0.0.0.0:10021".parse().unwrap();
+    let addr = "0.0.0.0:10023".parse().unwrap();
 
     let my_at = MyAvTransport::default();
 

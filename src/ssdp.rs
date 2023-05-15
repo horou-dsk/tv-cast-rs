@@ -16,14 +16,13 @@ use crate::{
 
 pub static ALLOW_IP: LazyLock<RwLock<Vec<Ipv4Addr>>> = LazyLock::new(|| RwLock::new(vec![]));
 
-#[derive(Clone)]
 pub struct SSDPServer<'a> {
     udp_socket: Arc<Socket>,
     known: HashMap<String, HashMap<&'a str, String>>,
     // ip_addr: Ipv4Addr,
     sock_addr: SockAddr,
     ip_list: Vec<(Ipv4Addr, Ipv4Addr)>,
-    // send_socket: Arc<socket2::Socket>,
+    send_socket: HashMap<Ipv4Addr, socket2::Socket>,
 }
 
 impl<'a> SSDPServer<'a> {
@@ -44,18 +43,28 @@ impl<'a> SSDPServer<'a> {
             // ip_addr: SSDP_ADDR.parse::<Ipv4Addr>().unwrap(),
             ip_list: Vec::new(),
             sock_addr: ssdp_addr.into(),
-            // send_socket: Arc::new(send_socket),
+            send_socket: HashMap::new(),
         }
     }
 
-    fn send_to(&self, buf: &[u8], addr: &SockAddr) {
+    fn send_to(&self, buf: &[u8], addr: &SockAddr, ip: &Ipv4Addr) {
         // let udp_socket =
         // socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
-        self.udp_socket.send_to(buf, addr).unwrap();
+        self.send_socket
+            .get(ip)
+            .unwrap()
+            .send_to(buf, addr)
+            .unwrap();
     }
 
     pub fn add_ip_list(&mut self, ip: (Ipv4Addr, Ipv4Addr)) {
         self.ip_list.push(ip);
+        let skt = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
+        skt.join_multicast_v4(&SSDP_ADDR.parse().unwrap(), &ip.0)
+            .unwrap();
+        skt.bind(&SockAddr::from(SocketAddr::new(IpAddr::V4(ip.0), 37154)))
+            .unwrap();
+        self.send_socket.insert(ip.0, skt);
     }
 
     pub fn register(
@@ -112,10 +121,13 @@ impl<'a> SSDPServer<'a> {
             //     return;
             // }
             for (ip, _) in &self.ip_list {
-                self.send_to(
-                    resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
-                    &self.sock_addr,
-                );
+                for _ in 0..2 {
+                    self.send_to(
+                        resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
+                        &self.sock_addr,
+                        ip,
+                    );
+                }
                 // Self::send_to
                 //     .send_to(
                 //         resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
@@ -247,7 +259,7 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
                                 // self.udp_socket
                                 //     .send_to(response.as_bytes(), &SockAddr::from(addr))
                                 //     .unwrap();
-                                self.send_to(response.as_bytes(), &SockAddr::from(addr));
+                                self.send_to(response.as_bytes(), &SockAddr::from(addr), ip);
                                 // Self::send_to(response.as_bytes(), &SockAddr::from(addr));
                                 break;
                             }

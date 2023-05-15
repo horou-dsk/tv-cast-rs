@@ -47,9 +47,12 @@ pub fn dlna_init(name: String) -> std::io::Result<DLNAHandler> {
     for local_ip in &ip_list {
         println!("local_ip = {local_ip:?}");
         if let Err(err) = udp_socket.join_multicast_v4(&ip_addr, &local_ip.0) {
-            println!("1.join_multicast_v4 error = {:?}", err);
+            println!("{} join_multicast_v4 error = {:?}", local_ip.0, err);
         }
     }
+    udp_socket
+        .join_multicast_v4(&ip_addr, &Ipv4Addr::LOCALHOST)
+        .unwrap();
 
     let address = format!("0.0.0.0:{}", SSDP_PORT)
         .parse::<SocketAddr>()

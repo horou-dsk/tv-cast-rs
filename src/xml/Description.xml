@@ -17,6 +17,7 @@
         <modelNumber>{model_number}</modelNumber>
         <modelURL>{model_url}</modelURL>
         <serialNumber>{serial_num}</serialNumber>
+        <presentationURL>/</presentationURL>
         {header_extra}
         <dlna:X_DLNADOC xmlns:dlna="urn:schemas-dlna-org:device-1-0">DMR-1.50</dlna:X_DLNADOC>
         <serviceList>
