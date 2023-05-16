@@ -67,23 +67,20 @@ struct Sh {
 
 #[get("/description.xml")]
 async fn description(dlna: web::Data<Arc<DLNAHandler>>, req: HttpRequest) -> impl Responder {
-    HttpResponse::Ok()
-        .append_header((header::CONTENT_TYPE, "text/xml"))
-        .body(dlna.description().to_string())
-    // let info = req.connection_info();
-    // match info.peer_addr() {
-    //     Some(ip)
-    //         if ALLOW_IP
-    //             .read()
-    //             .unwrap()
-    //             .contains(&ip.parse::<Ipv4Addr>().unwrap()) =>
-    //     {
-    //         HttpResponse::Ok()
-    //             .append_header((header::CONTENT_TYPE, "text/xml"))
-    //             .body(dlna.description().to_string())
-    //     }
-    //     _ => HttpResponse::Unauthorized().finish(),
-    // }
+    let info = req.connection_info();
+    match info.peer_addr() {
+        Some(ip)
+            if ALLOW_IP
+                .read()
+                .unwrap()
+                .contains(&ip.parse::<Ipv4Addr>().unwrap()) =>
+        {
+            HttpResponse::Ok()
+                .append_header((header::CONTENT_TYPE, "text/xml"))
+                .body(dlna.description().to_string())
+        }
+        _ => HttpResponse::Unauthorized().finish(),
+    }
 }
 
 #[actix_web::main]

@@ -117,9 +117,9 @@ impl<'a> SSDPServer<'a> {
             //         .send_to(resp.as_bytes(), &allow_addr.into())
             //         .expect("send error");
             // }
-            // if ALLOW_IP.read().unwrap().is_empty() {
-            //     return;
-            // }
+            if ALLOW_IP.read().unwrap().is_empty() {
+                return;
+            }
             for (ip, _) in &self.ip_list {
                 for _ in 0..2 {
                     self.send_to(
@@ -207,15 +207,15 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
         if method[0] == "M-SEARCH" && method[1] == "*" {
             // println!("M-SEARCH *");
             // println!("M-SEARCH * Result = \n{} from ip = {}", result, src);
-            self.discovery_request(headers, src);
-            // match src.ip() {
-            //     IpAddr::V4(ipv4) => {
-            //         if ALLOW_IP.read().unwrap().contains(&ipv4) {
-            //             self.discovery_request(headers, src);
-            //         }
-            //     }
-            //     IpAddr::V6(_) => (),
-            // }
+            // self.discovery_request(headers, src);
+            match src.ip() {
+                IpAddr::V4(ipv4) => {
+                    if ALLOW_IP.read().unwrap().contains(&ipv4) {
+                        self.discovery_request(headers, src);
+                    }
+                }
+                IpAddr::V6(_) => (),
+            }
             // unimplemented!()
         } else if method[0] == "NOTIFY" && method[1] == "*" {
         } else {

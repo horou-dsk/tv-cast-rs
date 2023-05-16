@@ -17,7 +17,7 @@ use surge_ping::{PingIdentifier, PingSequence};
 
 use crate::{
     constant::{SSDP_ADDR, SSDP_PORT},
-    net::arp::arp_scan,
+    net::arp::linux_arp_scan,
 };
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
@@ -127,7 +127,7 @@ pub async fn ip_online_check() -> std::io::Result<()> {
                 .pinger(std::net::IpAddr::V4(ip), PingIdentifier(rand::random()))
                 .await;
             if pinger.ping(PingSequence(0), &payload).await.is_err() {
-                if let Ok((recv_ip, _)) = arp_scan(ip).await {
+                if let Ok((recv_ip, _)) = linux_arp_scan(ip).await {
                     if recv_ip == ip {
                         return (true, ip);
                     }

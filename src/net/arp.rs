@@ -1,7 +1,7 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
-    process,
-    time::Duration,
+    process::{self, Stdio},
+    time::Duration, sync::{atomic::{AtomicBool, Ordering}, Arc, LazyLock},
 };
 
 use pnet::packet::{
@@ -10,6 +10,8 @@ use pnet::packet::{
     MutablePacket, Packet,
 };
 use pnet_datalink::{DataLinkSender, MacAddr, NetworkInterface};
+use regex::Regex;
+use tokio::process::Command;
 
 pub async fn arp_scan(target_ip: Ipv4Addr) -> std::io::Result<(Ipv4Addr, MacAddr)> {
     let interfaces = pnet_datalink::interfaces();
@@ -23,6 +25,7 @@ pub async fn arp_scan(target_ip: Ipv4Addr) -> std::io::Result<(Ipv4Addr, MacAddr
         })
         .collect();
     let mut join_handle = Vec::new();
+    let timed_out = Arc::new(AtomicBool::new(false));
     for selected_interface in selected_interfaces {
         let IpAddr::V4(select_interface_ip) = selected_interface.ips
             .iter()
@@ -30,18 +33,17 @@ pub async fn arp_scan(target_ip: Ipv4Addr) -> std::io::Result<(Ipv4Addr, MacAddr
             .unwrap()
             .ip() else {continue};
         let channel_config = pnet_datalink::Config {
-            read_timeout: Some(Duration::from_millis(1500)),
+            read_timeout: Some(Duration::from_millis(500)),
             ..pnet_datalink::Config::default()
         };
         let pnet_datalink::Channel::Ethernet(tx, mut rx) = pnet_datalink::channel(&selected_interface, channel_config)? else { 
             eprintln!("Datalink channel creation failed ");
             process::exit(1);
         };
+        let cloned_timed_out = Arc::clone(&timed_out);
         let recv_thread = tokio::task::spawn_blocking(move || {
-            let mut timeout_num = 0;
             loop {
-                timeout_num += 1;
-                if timeout_num >= 4 {
+                if cloned_timed_out.load(Ordering::Relaxed) {
                     println!("scan {select_interface_ip} -> {target_ip} 超时...");
                     return None;
                 }
@@ -85,7 +87,8 @@ pub async fn arp_scan(target_ip: Ipv4Addr) -> std::io::Result<(Ipv4Addr, MacAddr
         send_arp_packet(tx, &selected_interface, target_ip)?;
         join_handle.push(recv_thread);
     }
-    
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    timed_out.store(true, Ordering::Relaxed);
     for handle in join_handle {
         if let Ok(Some(device)) = handle.await {
             return Ok(device)
@@ -159,4 +162,22 @@ fn send_arp_packet(
     // )?;
 
     Ok(())
+}
+
+static IP_MATCH: LazyLock<Regex> = LazyLock::new(|| Regex::new("\\?\\s\\(([\\d\\.]+)\\)").unwrap());
+static MAC_MATCH: LazyLock<Regex> = LazyLock::new(|| Regex::new("at\\s([a-z0-9:]+)").unwrap());
+
+pub async fn linux_arp_scan(target_ip: Ipv4Addr) -> std::io::Result<(Ipv4Addr, MacAddr)> {
+    let output = Command::new("arp")
+        .args(["-a", &target_ip.to_string()])
+        .stdout(Stdio::null())
+        .output()
+        .await?;
+    let result = String::from_utf8_lossy(&output.stdout);
+    let ip_caps = IP_MATCH.captures(&result);
+    let mac_caps = MAC_MATCH.captures(&result);
+    let err = Err(std::io::ErrorKind::NotFound.into());
+    let (Some(ip_cap), Some(mac_cap)) = (ip_caps, mac_caps) else {return err};
+    let (Some(ip), Some(mac)) = (ip_cap.get(1).map(|ip| ip.as_str()), mac_cap.get(1).map(|mac| mac.as_str())) else {return err};
+    Ok((ip.parse().unwrap(), mac.parse().unwrap()))
 }
