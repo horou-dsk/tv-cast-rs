@@ -50,11 +50,11 @@ impl<'a> SSDPServer<'a> {
     fn send_to(&self, buf: &[u8], addr: &SockAddr, ip: &Ipv4Addr) {
         // let udp_socket =
         // socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
-        self.send_socket
-            .get(ip)
-            .unwrap()
-            .send_to(buf, addr)
-            .unwrap();
+        let Some(skt) = self.send_socket
+        .get(ip) else {return};
+        if let Err(err) = skt.send_to(buf, addr) {
+            eprintln!("send to error = {:?}", err);
+        }
     }
 
     pub fn add_ip_list(&mut self, ip: (Ipv4Addr, Ipv4Addr)) {
@@ -193,9 +193,9 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
 
     pub fn datagram_received(&self, data: &[u8], src: SocketAddr) {
         let result = String::from_utf8_lossy(data);
-        if result.starts_with("M-SEARCH") {
-            println!("M-SEARCH * Result = \n{} from ip = {}", result, src);
-        }
+        // if result.starts_with("M-SEARCH") {
+        //     println!("M-SEARCH * Result = \n{} from ip = {}", result, src);
+        // }
         let Some((method, headers)) = parse_header(&result) else {
             println!("Error Result = {}", result);
             return;
@@ -254,7 +254,7 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
                             if get_subnet_ip(ip, netmask) == get_subnet_ip(host, netmask) {
                                 // let response = response.replace("{ip}", &ip.to_string());
                                 let response = response.replace("{local_ip}", &ip.to_string());
-                                println!("send to host = {}", addr);
+                                // println!("send to host = {}", addr);
                                 // println!("send to = {} \n to host = {}", response, addr);
                                 // self.udp_socket
                                 //     .send_to(response.as_bytes(), &SockAddr::from(addr))
