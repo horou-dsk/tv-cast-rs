@@ -1,6 +1,7 @@
 use actix_web::{get, http::header, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use hztp::{
     actions::rpc_action::rpc::av_transport_client::AvTransportClient,
+    android,
     constant::{ANDROID_ADDR, SERVER_PORT},
     dlna_init, ip_online_check,
     protocol::DLNAHandler,
@@ -88,6 +89,9 @@ async fn main() -> std::io::Result<()> {
     // if !cfg!(windows) {
     //     tokio::time::sleep(Duration::from_secs(5)).await;
     // }
+    if let Err(err) = android::uninstall_package("com.waxrain.airplaydmr").await {
+        eprintln!("卸载失败 {err:?}");
+    }
     let mut args = std::env::args();
     args.next();
     let name = args.next().expect("缺少投屏名称参数！");

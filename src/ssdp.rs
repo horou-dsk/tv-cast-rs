@@ -30,13 +30,6 @@ impl<'a> SSDPServer<'a> {
         let ssdp_addr = format!("{}:{}", SSDP_ADDR, SSDP_PORT)
             .parse::<SocketAddr>()
             .unwrap();
-        // let send_socket =
-        // socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
-        // let send_socket = Arc::new(UdpSocket::bind(("0.0.0.0", 19565)).unwrap());
-        // send_socket
-        //     .join_multicast_v4(&SSDP_ADDR.parse::<Ipv4Addr>().unwrap(), &local_ip)
-        //     .unwrap();
-        // send_socket.set_multicast_loop_v4(false).unwrap();
         Self {
             udp_socket,
             known: HashMap::new(),
@@ -49,11 +42,14 @@ impl<'a> SSDPServer<'a> {
 
     fn send_to(&self, buf: &[u8], addr: &SockAddr, ip: &Ipv4Addr) {
         // let udp_socket =
-        // socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
-        let Some(skt) = self.send_socket
-        .get(ip) else {return};
+        //     socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
+        // if let Err(err) = udp_socket.join_multicast_v4(&SSDP_ADDR.parse().unwrap(), ip) {
+        //     eprintln!("notify join multicast error = {err:?}");
+        //     return;
+        // }
+        let Some(skt) = self.send_socket.get(ip) else {return};
         if let Err(err) = skt.send_to(buf, addr) {
-            eprintln!("send to error = {:?}", err);
+            eprintln!("send to error = {:?}, interface ip = \n{}", err, ip);
         }
     }
 
@@ -62,8 +58,9 @@ impl<'a> SSDPServer<'a> {
         let skt = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
         skt.join_multicast_v4(&SSDP_ADDR.parse().unwrap(), &ip.0)
             .unwrap();
-        skt.bind(&SockAddr::from(SocketAddr::new(IpAddr::V4(ip.0), 37154)))
-            .unwrap();
+        skt.set_multicast_if_v4(&ip.0).unwrap();
+        // skt.bind(&SockAddr::from(SocketAddr::new(IpAddr::V4(ip.0), 37154)))
+        //     .unwrap();
         self.send_socket.insert(ip.0, skt);
     }
 
@@ -109,14 +106,6 @@ impl<'a> SSDPServer<'a> {
                 .chain(["".to_string(), "".to_string()].into_iter())
                 .map(|v| format!("{v}\r\n"))
                 .collect::<String>();
-            // .replace("{ip}", &self.ip_list[0].0.to_string());
-            // println!("==============notify = \n{}", resp);
-            // for allow_ip in unsafe { &*(ALLOW_IP.read().unwrap()) } {
-            //     let allow_addr = SocketAddrV4::new(*allow_ip, SSDP_PORT);
-            //     self.udp_socket
-            //         .send_to(resp.as_bytes(), &allow_addr.into())
-            //         .expect("send error");
-            // }
             if ALLOW_IP.read().unwrap().is_empty() {
                 return;
             }
@@ -128,27 +117,7 @@ impl<'a> SSDPServer<'a> {
                         ip,
                     );
                 }
-                // Self::send_to
-                //     .send_to(
-                //         resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
-                //         &self.sock_addr,
-                //     );
-                // for allow_ip in ALLOW_IP.read().unwrap().iter() {
-                //     let st_addr = SocketAddr::new((*allow_ip).into(), SSDP_PORT);
-                //     let to_addr = SockAddr::from(st_addr);
-                //     // println!("Notify to = {}", st_addr);
-                //     self.udp_socket
-                //         .send_to(
-                //             resp.replace("{local_ip}", &ip.to_string()).as_bytes(),
-                //             &to_addr,
-                //         )
-                //         .expect("send_socket send_to error");
-                // }
             }
-            // println!("sendsize = {size}, resp = {resp}");
-            // self.send_socket
-            //     .send_to(resp.as_bytes(), self.sock_addr.as_socket().unwrap())
-            //     .expect("send error");
         }
     }
 
@@ -216,7 +185,6 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
                 }
                 IpAddr::V6(_) => (),
             }
-            // unimplemented!()
         } else if method[0] == "NOTIFY" && method[1] == "*" {
         } else {
             println!("result = \n{}", result);
@@ -256,11 +224,7 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
                                 let response = response.replace("{local_ip}", &ip.to_string());
                                 // println!("send to host = {}", addr);
                                 // println!("send to = {} \n to host = {}", response, addr);
-                                // self.udp_socket
-                                //     .send_to(response.as_bytes(), &SockAddr::from(addr))
-                                //     .unwrap();
                                 self.send_to(response.as_bytes(), &SockAddr::from(addr), ip);
-                                // Self::send_to(response.as_bytes(), &SockAddr::from(addr));
                                 break;
                             }
                         }

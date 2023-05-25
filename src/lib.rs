@@ -35,7 +35,7 @@ pub fn set_resue_upd(udp_socket: &Socket) -> std::io::Result<()> {
     udp_socket.set_reuse_port(true)
 }
 
-#[cfg(all(not(any(target_os = "solaris", target_os = "illumos"))))]
+#[cfg(not(any(target_os = "solaris", target_os = "illumos")))]
 pub fn set_resue_upd(udp_socket: &Socket) -> std::io::Result<()> {
     udp_socket.set_reuse_address(true)
 }
@@ -101,7 +101,7 @@ pub fn dlna_init(name: String) -> std::io::Result<DLNAHandler> {
         thread::Builder::new()
             .name("ssdp notify".to_string())
             .spawn(move || loop {
-                thread::sleep(Duration::from_secs(1));
+                thread::sleep(Duration::from_secs(2));
                 ssdp.do_notify();
             })?;
     }
@@ -150,5 +150,6 @@ pub async fn ip_online_check() -> std::io::Result<()> {
 }
 
 pub mod actions;
+pub mod android;
 pub mod net;
 pub mod routers;
