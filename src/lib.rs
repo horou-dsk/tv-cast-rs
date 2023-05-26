@@ -5,17 +5,25 @@
 use std::{
     mem::MaybeUninit,
     net::{Ipv4Addr, SocketAddr},
+    path::Path,
     sync::Arc,
     thread,
     time::Duration,
 };
 
+use android_logger::Config;
 use futures::{stream::FuturesUnordered, StreamExt};
+use jni::{
+    objects::{JClass, JObject, JString},
+    JNIEnv,
+};
+use log::LevelFilter;
 use protocol::DLNAHandler;
 use ssdp::{Ssdp, ALLOW_IP};
 use surge_ping::{PingIdentifier, PingSequence};
 
 use crate::{
+    actions::jni_action::AVTransportAction,
     constant::{SSDP_ADDR, SSDP_PORT},
     net::arp::linux_arp_scan,
 };
@@ -40,19 +48,17 @@ pub fn set_resue_upd(udp_socket: &Socket) -> std::io::Result<()> {
     udp_socket.set_reuse_address(true)
 }
 
-pub fn dlna_init(name: String) -> std::io::Result<DLNAHandler> {
+pub fn dlna_init(name: String, uuid_path: &Path) -> std::io::Result<DLNAHandler> {
     let ip_addr = SSDP_ADDR.parse::<Ipv4Addr>().unwrap();
     let udp_socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     let ip_list = setting::get_ip().unwrap();
-    for local_ip in &ip_list {
-        println!("local_ip = {local_ip:?}");
-        if let Err(err) = udp_socket.join_multicast_v4(&ip_addr, &local_ip.0) {
-            println!("{} join_multicast_v4 error = {:?}", local_ip.0, err);
-        }
-    }
-    udp_socket
-        .join_multicast_v4(&ip_addr, &Ipv4Addr::LOCALHOST)
-        .unwrap();
+    // for local_ip in &ip_list {
+    //     log::info!("local_ip = {local_ip:?}");
+    //     if let Err(err) = udp_socket.join_multicast_v4(&ip_addr, &local_ip.0) {
+    //         log::info!("{} join_multicast_v4 error = {:?}", local_ip.0, err);
+    //     }
+    // }
+    udp_socket.join_multicast_v4(&ip_addr, &Ipv4Addr::LOCALHOST)?;
 
     let address = format!("0.0.0.0:{}", SSDP_PORT)
         .parse::<SocketAddr>()
@@ -66,13 +72,7 @@ pub fn dlna_init(name: String) -> std::io::Result<DLNAHandler> {
 
     let local_ip = ip_list[0];
 
-    let ssdp = Ssdp::new(udp_socket.clone(), local_ip.0).register();
-    {
-        let mut server = ssdp.server.write().unwrap();
-        for local_ip in ip_list {
-            server.add_ip_list(local_ip);
-        }
-    }
+    let ssdp = Ssdp::new(udp_socket.clone(), uuid_path)?.register();
     // if cfg!(windows) {
     //     let win_ip = Ipv4Addr::new(192, 169, 137, 1);
     //     let win_netmask = Ipv4Addr::new(255, 255, 255, 0);
@@ -102,6 +102,7 @@ pub fn dlna_init(name: String) -> std::io::Result<DLNAHandler> {
             .name("ssdp notify".to_string())
             .spawn(move || loop {
                 thread::sleep(Duration::from_secs(2));
+                ssdp.server.write().unwrap().sync_ip_list();
                 ssdp.do_notify();
             })?;
     }
@@ -135,7 +136,7 @@ pub async fn ip_online_check() -> std::io::Result<()> {
             } else {
                 return (true, ip);
             }
-            println!("剔除 device_ip = {ip}");
+            log::info!("剔除 device_ip = {ip}");
             (false, ip)
         });
     }
@@ -151,5 +152,25 @@ pub async fn ip_online_check() -> std::io::Result<()> {
 
 pub mod actions;
 pub mod android;
+mod entry;
 pub mod net;
 pub mod routers;
+
+#[no_mangle]
+pub extern "C" fn Java_com_ycsoft_smartbox_services_TPServices_rustMethod(
+    mut env: JNIEnv,
+    _class: JClass,
+    input: JString,
+    path: JString,
+    obj: JObject<'static>,
+) {
+    let global_ref = env.new_global_ref(obj).unwrap();
+    android_logger::init_once(Config::default().with_max_level(LevelFilter::Info));
+    let input: String = env.get_string(&input).unwrap().into();
+    let path: String = env.get_string(&path).unwrap().into();
+    let av_action = AVTransportAction::new(env.get_java_vm().unwrap(), global_ref);
+    log::info!("开始运行服务...................");
+    if let Err(err) = entry::run_main(input, Path::new(&path), av_action) {
+        log::error!("run main error {err:?}");
+    }
+}

@@ -9,19 +9,16 @@ use std::{
 
 use actix_web::{web, HttpRequest, HttpResponse};
 use tokio::sync::{Mutex, RwLock};
-use tonic::{transport::Channel, Status};
 
 use crate::actions::avtransport::GetPositionInfoResponse;
 
-use self::rpc::Volume;
-
 use super::{
     avtransport::{AVTransportAction, AVTransportResponse, GetTransportInfoResponse},
+    jni_action,
     renderingcontrol::{GetVolumeResponse, RenderingControlAction, RenderingControlResponse},
 };
-use rpc::{av_transport_client::AvTransportClient, AvUri, Empty, SeekPosition, VolumeMute};
 
-pub type ClientData = web::Data<Arc<Mutex<AvTransportClient<Channel>>>>;
+pub type ClientData = web::Data<Arc<Mutex<jni_action::AVTransportAction>>>;
 
 struct SingleAction {
     timestamp: chrono::NaiveDateTime,
@@ -41,9 +38,9 @@ static SIGNLE_ACTION: LazyLock<RwLock<SingleAction>> = LazyLock::new(|| {
     })
 });
 
-fn log_rpc_err(status: &Status) {
-    println!("{status:?}");
-}
+// fn log_rpc_err(status: &Status) {
+//     println!("{status:?}");
+// }
 
 pub async fn on_action(xml_text: &str, request: HttpRequest, client: ClientData) -> HttpResponse {
     let host = request
@@ -54,9 +51,9 @@ pub async fn on_action(xml_text: &str, request: HttpRequest, client: ClientData)
     let mut client = client.lock().await;
     match AVTransportAction::from_xml_text(xml_text) {
         Ok(AVTransportAction::GetTransportInfo(_)) => {
-            let resp = match client.get_transport_info(Empty {}).await {
+            let resp = match client.get_transport_info() {
                 Ok(rep) => {
-                    let state = rep.into_inner().current_transport_state;
+                    let state = rep.current_transport_state;
                     if state == "STOPPED" {
                         SIGNLE_ACTION.write().await.running = false;
                     }
@@ -73,7 +70,8 @@ pub async fn on_action(xml_text: &str, request: HttpRequest, client: ClientData)
                     }
                 }
                 Err(err) => {
-                    log_rpc_err(&err);
+                    log::error!("{err:?}");
+                    // log_rpc_err(&err);
                     let sa = SIGNLE_ACTION.read().await;
                     GetTransportInfoResponse {
                         current_speed: "1",
@@ -103,14 +101,7 @@ pub async fn on_action(xml_text: &str, request: HttpRequest, client: ClientData)
             sa.current_uri_meta_data = av_uri.uri_meta_data.clone();
             drop(sa);
             // println!("\nmeta xml = {}\n", av_uri.uri_meta_data);
-            if client
-                .set_uri(AvUri {
-                    uri: av_uri.uri,
-                    uri_meta_data: av_uri.uri_meta_data,
-                })
-                .await
-                .is_ok()
-            {
+            if client.set_uri(av_uri).is_ok() {
                 SIGNLE_ACTION.write().await.running = true;
             }
             // Command::new("am")
@@ -128,7 +119,7 @@ pub async fn on_action(xml_text: &str, request: HttpRequest, client: ClientData)
         }
         Ok(AVTransportAction::Play(_)) => {
             println!("{xml_text}");
-            client.play(Empty {}).await.unwrap();
+            client.play().unwrap();
             AVTransportResponse::default_ok("Play")
         }
         Ok(AVTransportAction::Stop(_)) => {
@@ -136,14 +127,17 @@ pub async fn on_action(xml_text: &str, request: HttpRequest, client: ClientData)
             let sa = SIGNLE_ACTION.read().await;
             if sa.host == host {
                 drop(sa);
-                client.stop(Empty {}).await.ok();
+                client.stop().ok();
                 SIGNLE_ACTION.write().await.running = false;
             }
             AVTransportResponse::default_ok("Stop")
         }
         Ok(AVTransportAction::GetPositionInfo) => {
-            if let Ok(resp) = client.get_position(Empty {}).await.inspect_err(log_rpc_err) {
-                let data = resp.into_inner();
+            if let Ok(resp) = client
+                .get_position()
+                .inspect_err(|err| log::error!("{err:?}"))
+            {
+                let data = resp;
                 let sa = SIGNLE_ACTION.read().await;
                 AVTransportResponse::ok(GetPositionInfoResponse {
                     track: 1,
@@ -161,16 +155,11 @@ pub async fn on_action(xml_text: &str, request: HttpRequest, client: ClientData)
             }
         }
         Ok(AVTransportAction::Seek(seek)) => {
-            client
-                .seek(SeekPosition {
-                    target: seek.target,
-                })
-                .await
-                .ok();
+            client.seek(seek.target).ok();
             AVTransportResponse::default_ok("Seek")
         }
         Ok(AVTransportAction::Pause) => {
-            client.pause(Empty {}).await.ok();
+            client.pause().ok();
             AVTransportResponse::default_ok("Pause")
         }
         // Ok(AVTransportResponse::GetMediaInfo) => {
@@ -201,29 +190,18 @@ pub async fn on_render_control_action(xml_text: &str, client: ClientData) -> Htt
     let mut client = client.lock().await;
     match RenderingControlAction::from_xml_text(xml_text) {
         Ok(RenderingControlAction::SetVolume(volume)) => {
-            client
-                .set_volume(Volume {
-                    desired_volume: volume.desired_volume,
-                    channel: volume.channel,
-                })
-                .await
-                .unwrap();
+            client.set_volume(volume).unwrap();
             RenderingControlResponse::default_ok("SetVolume")
         }
         Ok(RenderingControlAction::GetVolume) => {
-            let vol = client.get_volume(Empty {}).await.unwrap();
+            let vol = client.get_volume().unwrap();
             RenderingControlResponse::ok(GetVolumeResponse {
-                current_volume: vol.into_inner().current_volume,
+                current_volume: vol.current_volume,
                 ..Default::default()
             })
         }
         Ok(RenderingControlAction::SetMute(set_mute)) => {
-            client
-                .set_mute(VolumeMute {
-                    desired_mute: set_mute.desired_mute,
-                })
-                .await
-                .ok();
+            client.set_mute(set_mute.desired_mute).ok();
             RenderingControlResponse::default_ok("SetMute")
         }
         _ => {

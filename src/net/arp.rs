@@ -168,8 +168,9 @@ static IP_MATCH: LazyLock<Regex> = LazyLock::new(|| Regex::new("\\?\\s\\(([\\d\\
 static MAC_MATCH: LazyLock<Regex> = LazyLock::new(|| Regex::new("at\\s([a-z0-9:]+)").unwrap());
 
 pub async fn linux_arp_scan(target_ip: Ipv4Addr) -> std::io::Result<(Ipv4Addr, MacAddr)> {
-    let output = Command::new("arp")
-        .args(["-a", &target_ip.to_string()])
+    let output = Command::new("su")
+        .arg("root")
+        .args(["arp", "-a", &target_ip.to_string()])
         .stdout(Stdio::null())
         .output()
         .await?;
