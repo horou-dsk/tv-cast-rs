@@ -1,12 +1,15 @@
 use std::net::Ipv4Addr;
 
-pub fn get_ip() -> Result<Vec<(Ipv4Addr, Ipv4Addr)>, String> {
+use default_net::interface::MacAddr;
+
+pub fn get_ip() -> Result<Vec<(Ipv4Addr, Ipv4Addr, MacAddr)>, String> {
     if cfg!(windows) {
         let default_interface = default_net::get_default_interface()?;
+        let mac_addr = default_interface.mac_addr.unwrap();
         Ok(default_interface
             .ipv4
             .into_iter()
-            .map(|ip| (ip.addr, ip.netmask))
+            .map(|ip| (ip.addr, ip.netmask, mac_addr.clone()))
             .collect())
     } else {
         let mut ip_list = Vec::new();
@@ -16,8 +19,9 @@ pub fn get_ip() -> Result<Vec<(Ipv4Addr, Ipv4Addr)>, String> {
             if interface.if_type == default_net::interface::InterfaceType::Ethernet
                 || interface.if_type == default_net::interface::InterfaceType::Wireless80211
             {
+                let mac_addr = interface.mac_addr.unwrap();
                 for ip in interface.ipv4 {
-                    ip_list.push((ip.addr, ip.netmask));
+                    ip_list.push((ip.addr, ip.netmask, mac_addr.clone()));
                 }
             }
         }

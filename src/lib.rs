@@ -5,6 +5,7 @@
 use std::{
     mem::MaybeUninit,
     net::{Ipv4Addr, SocketAddr},
+    panic,
     path::Path,
     sync::Arc,
     thread,
@@ -70,7 +71,7 @@ pub fn dlna_init(name: String, uuid_path: &Path) -> std::io::Result<DLNAHandler>
 
     let udp_socket = Arc::new(udp_socket);
 
-    let local_ip = ip_list[0];
+    let local_ip = &ip_list[0];
 
     let ssdp = Ssdp::new(udp_socket.clone(), uuid_path)?.register();
     // if cfg!(windows) {
@@ -151,6 +152,7 @@ pub async fn ip_online_check() -> std::io::Result<()> {
 }
 
 pub mod actions;
+pub mod airplay;
 pub mod android;
 mod entry;
 pub mod net;
@@ -166,6 +168,17 @@ pub extern "C" fn Java_com_ycsoft_smartbox_services_TPServices_rustMethod(
 ) {
     let global_ref = env.new_global_ref(obj).unwrap();
     android_logger::init_once(Config::default().with_max_level(LevelFilter::Info));
+    // log_panics::init()
+    panic::set_hook(Box::new(|info| {
+        let msg = match info.payload().downcast_ref::<&'static str>() {
+            Some(s) => *s,
+            None => match info.payload().downcast_ref::<String>() {
+                Some(s) => &**s,
+                None => "Box<Any>",
+            },
+        };
+        log::error!("panic log {msg}");
+    }));
     let input: String = env.get_string(&input).unwrap().into();
     let path: String = env.get_string(&path).unwrap().into();
     let av_action = AVTransportAction::new(env.get_java_vm().unwrap(), global_ref);

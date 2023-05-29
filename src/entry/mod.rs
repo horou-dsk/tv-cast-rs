@@ -2,7 +2,10 @@ use crate::{
     actions::jni_action::AVTransportAction, android, constant::SERVER_PORT, dlna_init,
     ip_online_check, protocol::DLNAHandler, routers, ssdp::ALLOW_IP,
 };
-use actix_web::{get, http::header, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{
+    get, http::header, middleware::Logger, web, App, HttpRequest, HttpResponse, HttpServer,
+    Responder,
+};
 use serde::{Deserialize, Serialize};
 use std::{net::Ipv4Addr, path::Path, sync::Arc};
 use tokio::sync::Mutex;
@@ -82,6 +85,8 @@ pub fn run_main(
                 }
             }
         });
+        // let mut air_play_bonjour = AirPlayBonjour::new(name.clone());
+        // air_play_bonjour.start();
         let dlna = match dlna_init(name, uuid_path) {
             Ok(dlna) => dlna,
             Err(err) => {
@@ -107,6 +112,7 @@ pub fn run_main(
 
         HttpServer::new(move || {
             App::new()
+                .wrap(Logger::default())
                 .app_data(web::Data::new(dlna.clone()))
                 .app_data(web::Data::new(rpc_client.clone()))
                 .service(hello)

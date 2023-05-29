@@ -1,7 +1,3 @@
-pub mod rpc {
-    tonic::include_proto!("avtransport");
-}
-
 use std::{
     net::{IpAddr, Ipv4Addr},
     sync::{Arc, LazyLock},

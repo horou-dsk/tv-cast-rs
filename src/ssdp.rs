@@ -65,6 +65,7 @@ impl<'a> SSDPServer<'a> {
 
     pub fn sync_ip_list(&mut self) {
         let ip_list = setting::get_ip().unwrap();
+        let ip_list = ip_list.into_iter().map(|v| (v.0, v.1)).collect();
         if ip_list != self.ip_list {
             for ip in &self.ip_list {
                 if let Err(err) = self.udp_socket.leave_multicast_v4(&self.ssdp_ip, &ip.0) {
@@ -72,13 +73,13 @@ impl<'a> SSDPServer<'a> {
                 }
             }
             self.send_socket.clear();
-            for ip in &ip_list {
+            self.ip_list = ip_list;
+            for ip in &self.ip_list {
                 if let Err(err) = self.udp_socket.join_multicast_v4(&self.ssdp_ip, &ip.0) {
                     log::error!("join_multicast_v4 error = {err:?} ip = {}", ip.0);
                 }
                 self.send_socket.insert(ip.0, self.new_socket(&ip.0));
             }
-            self.ip_list = ip_list;
         }
     }
 
