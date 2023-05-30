@@ -1,15 +1,16 @@
-use mdns_sd::{ServiceDaemon, ServiceInfo};
+use std::net::IpAddr;
+
+use libmdns::{Responder, Service};
 
 use crate::{constant::SERVER_PORT, setting};
 
-const AIRPLAY_SERVICE_TYPE: &str = "._airplay._tcp.local";
+const AIRPLAY_SERVICE_TYPE: &str = "_airplay._tcp";
 
-const AIRTUNES_SERVICE_TYPE: &str = "._raop._tcp.local";
+const AIRTUNES_SERVICE_TYPE: &str = "_raop._tcp";
 
 pub struct AirPlayBonjour {
     server_name: String,
-    service_daemon: ServiceDaemon,
-    service_names: Vec<String>, // mdns_list: Vec<>
+    services: Vec<Service>, // mdns_list: Vec<>
 }
 
 // fn log_err<T: std::fmt::Debug + Sized>(msg: &'static str) -> Box<dyn FnOnce(&T)> {
@@ -22,58 +23,51 @@ impl AirPlayBonjour {
     pub fn new(server_name: String) -> Self {
         Self {
             server_name,
-            service_names: Vec::new(),
-            service_daemon: ServiceDaemon::new()
-                .inspect_err(|err| log::error!("{err:?}"))
-                .unwrap(),
+            services: Vec::new(),
         }
     }
 
     pub fn start(&mut self) {
-        let service_hostname = format!("{}.local.", self.server_name);
         let port = SERVER_PORT;
         log::info!("mDNS port = {port}");
         let interfaces = setting::get_ip().unwrap();
-        for interface in interfaces {
-            let mac = interface.2.to_string();
-            let service_info = ServiceInfo::new(
-                AIRPLAY_SERVICE_TYPE,
-                &self.server_name,
-                &service_hostname,
-                interface.0,
-                port,
-                &Self::airplay_mdns_props(mac.clone())[..],
-            )
-            .expect("valid service info");
-            // let monitor = self.service_daemon.monitor().expect("Failed to monitor the daemon");
-            let service_fullname = service_info.get_fullname().to_string();
-            self.service_daemon
-                .register(service_info)
-                .expect("Failed to register mDNS service");
-            self.service_names.push(service_fullname);
+        let mac = default_net::get_default_interface()
+            .unwrap()
+            .mac_addr
+            .unwrap()
+            .to_string();
+        let responder =
+            Responder::new_with_ip_list(interfaces.into_iter().map(|v| IpAddr::V4(v.0)).collect())
+                .unwrap();
 
-            let air_tunes_server_name = format!("{}@{}", mac.replace(':', ""), self.server_name);
-            let service_info = ServiceInfo::new(
-                AIRTUNES_SERVICE_TYPE,
-                &air_tunes_server_name,
-                &service_hostname,
-                interface.0,
-                port,
-                &Self::air_tunes_mdns_props()[..],
-            )
-            .expect("valid service info");
-            let service_fullname = service_info.get_fullname().to_string();
-            self.service_daemon
-                .register(service_info)
-                .expect("Failed to register mDNS service");
-            self.service_names.push(service_fullname);
-        }
+        let txt: Vec<String> = Self::airplay_mdns_props(mac.clone())
+            .into_iter()
+            .map(|v| format!("{}={}", v.0, v.1))
+            .collect();
+        let txt: Vec<&str> = txt.iter().map(|v| v.as_str()).collect();
+        let svc = responder.register(
+            AIRPLAY_SERVICE_TYPE.into(),
+            self.server_name.clone(),
+            port,
+            &txt,
+        );
+
+        self.services.push(svc);
+
+        let txt: Vec<String> = Self::air_tunes_mdns_props()
+            .into_iter()
+            .map(|v| format!("{}={}", v.0, v.1))
+            .collect();
+        let txt: Vec<&str> = txt.iter().map(|v| v.as_str()).collect();
+        let service_name = format!("{}@{}", mac.replace(':', ""), self.server_name);
+        let svc = responder.register(AIRTUNES_SERVICE_TYPE.into(), service_name, port, &txt);
+        self.services.push(svc);
         log::warn!("mDNS 完成 ...............................");
     }
 
     fn airplay_mdns_props(device_id: String) -> Vec<(&'static str, String)> {
         vec![
-            ("device_id", device_id),
+            ("deviceid", device_id),
             ("features", "0x5A7FFFF7,0x1E".to_string()),
             ("srcvers", "220.68".to_string()),
             ("flags", "0x44".to_string()),
@@ -102,7 +96,7 @@ impl AirPlayBonjour {
             ("ft", "0x5A7FFFF7,0x1E"),
             ("am", "AppleTV3,2C"),
             ("md", "0,1,2"),
-            ("st", "44100"),
+            ("sr", "44100"),
             ("ss", "16"),
             ("sv", "false"),
             ("sm", "false"),
@@ -116,15 +110,5 @@ impl AirPlayBonjour {
                 "f3769a660475d27b4f6040381d784645e13e21c53e6d2da6a8c3d757086fc336",
             ),
         ]
-    }
-}
-
-impl Drop for AirPlayBonjour {
-    fn drop(&mut self) {
-        for service_name in &self.service_names {
-            if let Err(err) = self.service_daemon.unregister(service_name) {
-                log::error!("unregister error {:?}", err);
-            }
-        }
     }
 }

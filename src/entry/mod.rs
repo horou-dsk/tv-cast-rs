@@ -1,6 +1,7 @@
 use crate::{
-    actions::jni_action::AVTransportAction, android, constant::SERVER_PORT, dlna_init,
-    ip_online_check, protocol::DLNAHandler, routers, ssdp::ALLOW_IP,
+    actions::jni_action::AVTransportAction, airplay::airplay_bonjour::AirPlayBonjour, android,
+    constant::SERVER_PORT, dlna_init, ip_online_check, protocol::DLNAHandler, routers,
+    ssdp::ALLOW_IP,
 };
 use actix_web::{
     get, http::header, middleware::Logger, web, App, HttpRequest, HttpResponse, HttpServer,
@@ -85,8 +86,8 @@ pub fn run_main(
                 }
             }
         });
-        // let mut air_play_bonjour = AirPlayBonjour::new(name.clone());
-        // air_play_bonjour.start();
+        let mut air_play_bonjour = AirPlayBonjour::new(name.clone());
+        air_play_bonjour.start();
         let dlna = match dlna_init(name, uuid_path) {
             Ok(dlna) => dlna,
             Err(err) => {
