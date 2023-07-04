@@ -57,7 +57,9 @@ impl<'a> SSDPServer<'a> {
         //     eprintln!("notify join multicast error = {err:?}");
         //     return;
         // }
-        let Some(skt) = self.send_socket.get(ip) else {return};
+        let Some(skt) = self.send_socket.get(ip) else {
+            return;
+        };
         if let Err(err) = skt.send_to(buf, addr) {
             log::error!("send to error = {:?}, interface ip = \n{}", err, ip);
         }
@@ -122,7 +124,7 @@ impl<'a> SSDPServer<'a> {
             let resp = resp
                 .into_iter()
                 .chain(map.into_iter().map(|(k, v)| format!("{k}: {v}")))
-                .chain(["".to_string(), "".to_string()].into_iter())
+                .chain(["".to_string(), "".to_string()])
                 .map(|v| format!("{v}\r\n"))
                 .collect::<String>();
             if ALLOW_IP.read().unwrap().is_empty() {
@@ -169,7 +171,7 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
             let resp = resp
                 .into_iter()
                 .chain(map.into_iter().map(|(k, v)| format!("{k}: {v}")))
-                .chain(["".to_string(), "".to_string()].into_iter())
+                .chain(["".to_string(), "".to_string()])
                 .map(|v| format!("{v}\r\n"))
                 .collect::<String>();
 

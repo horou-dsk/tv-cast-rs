@@ -43,12 +43,8 @@ jni = "0.21"
 log-panics = {version = "2", features = ["with-backtrace"]}
 ndk = "0.7"
 ndk-sys = "0.4"
-protobuf = "3.2"
 
 [profile.release]
 codegen-units = 1
 lto = true
 strip = true
-
-[build-dependencies]
-tonic-build = "0.9"
