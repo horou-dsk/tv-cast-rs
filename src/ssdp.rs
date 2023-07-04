@@ -3,6 +3,7 @@ use std::{
     fs::File,
     io::{Read, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::Path,
     sync::{Arc, LazyLock, RwLock},
 };
 
@@ -12,6 +13,7 @@ use socket2::{SockAddr, Socket};
 use crate::{
     constant::{SERVER_PORT, SSDP_ADDR, SSDP_PORT},
     header::parse_header,
+    setting,
 };
 
 pub static ALLOW_IP: LazyLock<RwLock<Vec<Ipv4Addr>>> = LazyLock::new(|| RwLock::new(vec![]));
@@ -19,18 +21,19 @@ pub static ALLOW_IP: LazyLock<RwLock<Vec<Ipv4Addr>>> = LazyLock::new(|| RwLock::
 pub struct SSDPServer<'a> {
     udp_socket: Arc<Socket>,
     known: HashMap<String, HashMap<&'a str, String>>,
-    // ip_addr: Ipv4Addr,
+    ssdp_ip: Ipv4Addr,
     sock_addr: SockAddr,
     ip_list: Vec<(Ipv4Addr, Ipv4Addr)>,
     send_socket: HashMap<Ipv4Addr, socket2::Socket>,
 }
 
 impl<'a> SSDPServer<'a> {
-    pub fn new(udp_socket: Arc<Socket>, _local_ip: Ipv4Addr) -> Self {
+    pub fn new(udp_socket: Arc<Socket>) -> Self {
         let ssdp_addr = format!("{}:{}", SSDP_ADDR, SSDP_PORT)
             .parse::<SocketAddr>()
             .unwrap();
         Self {
+            ssdp_ip: SSDP_ADDR.parse().unwrap(),
             udp_socket,
             known: HashMap::new(),
             // ip_addr: SSDP_ADDR.parse::<Ipv4Addr>().unwrap(),
@@ -40,6 +43,13 @@ impl<'a> SSDPServer<'a> {
         }
     }
 
+    fn new_socket(&self, ip: &Ipv4Addr) -> socket2::Socket {
+        let skt = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
+        skt.join_multicast_v4(&self.ssdp_ip, ip).unwrap();
+        skt.set_multicast_if_v4(ip).unwrap();
+        skt
+    }
+
     fn send_to(&self, buf: &[u8], addr: &SockAddr, ip: &Ipv4Addr) {
         // let udp_socket =
         //     socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
@@ -47,21 +57,32 @@ impl<'a> SSDPServer<'a> {
         //     eprintln!("notify join multicast error = {err:?}");
         //     return;
         // }
-        let Some(skt) = self.send_socket.get(ip) else {return};
+        let Some(skt) = self.send_socket.get(ip) else {
+            return;
+        };
         if let Err(err) = skt.send_to(buf, addr) {
-            eprintln!("send to error = {:?}, interface ip = \n{}", err, ip);
+            log::error!("send to error = {:?}, interface ip = \n{}", err, ip);
         }
     }
 
-    pub fn add_ip_list(&mut self, ip: (Ipv4Addr, Ipv4Addr)) {
-        self.ip_list.push(ip);
-        let skt = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
-        skt.join_multicast_v4(&SSDP_ADDR.parse().unwrap(), &ip.0)
-            .unwrap();
-        skt.set_multicast_if_v4(&ip.0).unwrap();
-        // skt.bind(&SockAddr::from(SocketAddr::new(IpAddr::V4(ip.0), 37154)))
-        //     .unwrap();
-        self.send_socket.insert(ip.0, skt);
+    pub fn sync_ip_list(&mut self) {
+        let ip_list = setting::get_ip().unwrap();
+        let ip_list = ip_list.into_iter().map(|v| (v.0, v.1)).collect();
+        if ip_list != self.ip_list {
+            for ip in &self.ip_list {
+                if let Err(err) = self.udp_socket.leave_multicast_v4(&self.ssdp_ip, &ip.0) {
+                    log::error!("leave_multicast_v4 error = {err:?} ip = {}", ip.0);
+                }
+            }
+            self.send_socket.clear();
+            self.ip_list = ip_list;
+            for ip in &self.ip_list {
+                if let Err(err) = self.udp_socket.join_multicast_v4(&self.ssdp_ip, &ip.0) {
+                    log::error!("join_multicast_v4 error = {err:?} ip = {}", ip.0);
+                }
+                self.send_socket.insert(ip.0, self.new_socket(&ip.0));
+            }
+        }
     }
 
     pub fn register(
@@ -103,7 +124,7 @@ impl<'a> SSDPServer<'a> {
             let resp = resp
                 .into_iter()
                 .chain(map.into_iter().map(|(k, v)| format!("{k}: {v}")))
-                .chain(["".to_string(), "".to_string()].into_iter())
+                .chain(["".to_string(), "".to_string()])
                 .map(|v| format!("{v}\r\n"))
                 .collect::<String>();
             if ALLOW_IP.read().unwrap().is_empty() {
@@ -150,7 +171,7 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
             let resp = resp
                 .into_iter()
                 .chain(map.into_iter().map(|(k, v)| format!("{k}: {v}")))
-                .chain(["".to_string(), "".to_string()].into_iter())
+                .chain(["".to_string(), "".to_string()])
                 .map(|v| format!("{v}\r\n"))
                 .collect::<String>();
 
@@ -243,19 +264,18 @@ pub struct Ssdp<'a> {
 }
 
 impl<'a> Ssdp<'a> {
-    pub fn new(udp_socket: Arc<Socket>, local_ip: Ipv4Addr) -> Self {
+    pub fn new(udp_socket: Arc<Socket>, path: &Path) -> std::io::Result<Self> {
         let mut f = File::options()
             .write(true)
             .read(true)
             .create(true)
-            .open("./hztp_uuid.txt")
-            .unwrap();
+            .open(path.join("tp_uuid.txt"))?;
         let mut usn = String::new();
         let r = f.read_to_string(&mut usn);
 
         if r.is_err() || usn.is_empty() {
             usn = uuid::Uuid::new_v4().to_string();
-            f.write_all(usn.as_bytes()).unwrap();
+            f.write_all(usn.as_bytes())?;
         }
         // let usn = uuid::Uuid::new_v4().to_string();
         println!("\nuuid = {}\n", usn);
@@ -270,11 +290,11 @@ impl<'a> Ssdp<'a> {
             format!("uuid:{usn}::urn:schemas-upnp-org:service:AVTransport:1"),
         ];
 
-        Self {
+        Ok(Self {
             usn,
             devices,
-            server: Arc::new(RwLock::new(SSDPServer::new(udp_socket, local_ip))),
-        }
+            server: Arc::new(RwLock::new(SSDPServer::new(udp_socket))),
+        })
     }
 
     pub fn register(self) -> Self {
