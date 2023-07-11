@@ -4,11 +4,12 @@ use std::{
     io::{Read, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::Path,
-    sync::{Arc, LazyLock, RwLock},
+    sync::{Arc, LazyLock},
 };
 
 use rand::Rng;
-use socket2::{SockAddr, Socket};
+use socket2::SockAddr;
+use tokio::{net::UdpSocket, sync::RwLock};
 
 use crate::{
     constant::{SERVER_PORT, SSDP_ADDR, SSDP_PORT},
@@ -19,7 +20,7 @@ use crate::{
 pub static ALLOW_IP: LazyLock<RwLock<Vec<Ipv4Addr>>> = LazyLock::new(|| RwLock::new(vec![]));
 
 pub struct SSDPServer<'a> {
-    udp_socket: Arc<Socket>,
+    udp_socket: Arc<UdpSocket>,
     known: HashMap<String, HashMap<&'a str, String>>,
     ssdp_ip: Ipv4Addr,
     sock_addr: SockAddr,
@@ -28,7 +29,7 @@ pub struct SSDPServer<'a> {
 }
 
 impl<'a> SSDPServer<'a> {
-    pub fn new(udp_socket: Arc<Socket>) -> Self {
+    pub fn new(udp_socket: Arc<UdpSocket>) -> Self {
         let ssdp_addr = format!("{}:{}", SSDP_ADDR, SSDP_PORT)
             .parse::<SocketAddr>()
             .unwrap();
@@ -70,14 +71,14 @@ impl<'a> SSDPServer<'a> {
         let ip_list = ip_list.into_iter().map(|v| (v.0, v.1)).collect();
         if ip_list != self.ip_list {
             for ip in &self.ip_list {
-                if let Err(err) = self.udp_socket.leave_multicast_v4(&self.ssdp_ip, &ip.0) {
+                if let Err(err) = self.udp_socket.leave_multicast_v4(self.ssdp_ip, ip.0) {
                     log::error!("leave_multicast_v4 error = {err:?} ip = {}", ip.0);
                 }
             }
             self.send_socket.clear();
             self.ip_list = ip_list;
             for ip in &self.ip_list {
-                if let Err(err) = self.udp_socket.join_multicast_v4(&self.ssdp_ip, &ip.0) {
+                if let Err(err) = self.udp_socket.join_multicast_v4(self.ssdp_ip, ip.0) {
                     log::error!("join_multicast_v4 error = {err:?} ip = {}", ip.0);
                 }
                 self.send_socket.insert(ip.0, self.new_socket(&ip.0));
@@ -110,7 +111,7 @@ impl<'a> SSDPServer<'a> {
         self.known.remove(usn);
     }
 
-    pub fn do_notify(&self, usn: &'a str) {
+    pub async fn do_notify(&self, usn: &'a str) {
         if let Some(map) = self.known.get(usn) {
             let mut map = map.clone();
             let resp = vec![
@@ -127,7 +128,7 @@ impl<'a> SSDPServer<'a> {
                 .chain(["".to_string(), "".to_string()])
                 .map(|v| format!("{v}\r\n"))
                 .collect::<String>();
-            if ALLOW_IP.read().unwrap().is_empty() {
+            if ALLOW_IP.read().await.is_empty() {
                 return;
             }
             for (ip, _) in &self.ip_list {
@@ -142,7 +143,7 @@ impl<'a> SSDPServer<'a> {
         }
     }
 
-    pub fn do_search(&self) {
+    pub async fn do_search(&self) {
         self.udp_socket
             .send_to(
                 br#"M-SEARCH * HTTP/1.1
@@ -153,12 +154,13 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
 
 
 "#,
-                &self.sock_addr,
+                self.sock_addr.as_socket().unwrap(),
             )
+            .await
             .unwrap();
     }
 
-    pub fn do_byebye(&self, usn: &'a str) {
+    pub async fn do_byebye(&self, usn: &'a str) {
         if let Some(map) = self.known.get(usn) {
             let mut map = map.clone();
             let st = map.remove("ST").unwrap();
@@ -176,12 +178,13 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
                 .collect::<String>();
 
             self.udp_socket
-                .send_to(resp.as_bytes(), &self.sock_addr)
+                .send_to(resp.as_bytes(), self.sock_addr.as_socket().unwrap())
+                .await
                 .expect("send error");
         }
     }
 
-    pub fn datagram_received(&self, data: &[u8], src: SocketAddr) {
+    pub async fn datagram_received(&self, data: &[u8], src: SocketAddr) {
         let result = String::from_utf8_lossy(data);
         // if result.starts_with("M-SEARCH") {
         //     println!("M-SEARCH * Result = \n{} from ip = {}", result, src);
@@ -200,7 +203,7 @@ ST: urn:schemas-upnp-org:device:MediaRenderer:1
             // self.discovery_request(headers, src);
             match src.ip() {
                 IpAddr::V4(ipv4) => {
-                    if ALLOW_IP.read().unwrap().contains(&ipv4) {
+                    if ALLOW_IP.read().await.contains(&ipv4) {
                         self.discovery_request(headers, src);
                     }
                 }
@@ -264,7 +267,7 @@ pub struct Ssdp<'a> {
 }
 
 impl<'a> Ssdp<'a> {
-    pub fn new(udp_socket: Arc<Socket>, path: &Path) -> std::io::Result<Self> {
+    pub fn new(udp_socket: Arc<UdpSocket>, path: &Path) -> std::io::Result<Self> {
         let mut f = File::options()
             .write(true)
             .read(true)
@@ -297,14 +300,14 @@ impl<'a> Ssdp<'a> {
         })
     }
 
-    pub fn register(self) -> Self {
+    pub async fn register(self) -> Ssdp<'a> {
         for device in &self.devices {
             let st = if device.len() <= 43 {
                 device.clone()
             } else {
                 device[43..].to_string()
             };
-            self.server.write().unwrap().register(
+            self.server.write().await.register(
                 device,
                 st,
                 format!("http://{{local_ip}}:{}/description.xml", SERVER_PORT),
@@ -315,9 +318,9 @@ impl<'a> Ssdp<'a> {
         self
     }
 
-    pub fn do_notify(&self) {
+    pub async fn do_notify(&self) {
         for device in &self.devices {
-            self.server.read().unwrap().do_notify(device);
+            self.server.read().await.do_notify(device).await;
         }
     }
 }

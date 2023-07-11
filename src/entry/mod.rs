@@ -1,6 +1,11 @@
 use crate::{
-    actions::jni_action::AVTransportAction, android, constant::SERVER_PORT, dlna_init,
-    ip_online_check, protocol::DLNAHandler, routers, ssdp::ALLOW_IP,
+    actions::jni_action::AVTransportAction,
+    android,
+    constant::SERVER_PORT,
+    net::{dlna_init, ip_online_check},
+    protocol::DLNAHandler,
+    routers,
+    ssdp::ALLOW_IP,
 };
 use actix_web::{
     get, http::header, middleware::Logger, web, App, HttpRequest, HttpResponse, HttpServer,
@@ -19,17 +24,20 @@ async fn hello() -> impl Responder {
 }
 
 async fn bind_ip(req: HttpRequest) -> impl Responder {
-    let info = req.connection_info();
-    if let Some(ip) = info.peer_addr() {
-        let device_ip = ip.parse::<Ipv4Addr>().unwrap();
-        let mut allow_ip = ALLOW_IP.write().unwrap();
+    let info = req
+        .connection_info()
+        .peer_addr()
+        .map(|ip| ip.parse::<Ipv4Addr>().unwrap());
+    if let Some(device_ip) = info {
+        // let device_ip = ip.parse::<Ipv4Addr>().unwrap();
+        let mut allow_ip = ALLOW_IP.write().await;
         if !allow_ip.contains(&device_ip) {
             log::info!("{device_ip} 绑定！");
             allow_ip.push(device_ip);
         }
         HttpResponse::Ok()
             .append_header(("Access-Control-Allow-Origin", "*"))
-            .body(format!("{ip} 绑定成功！"))
+            .body(format!("{device_ip} 绑定成功！"))
     } else {
         HttpResponse::Ok().body(format!("没有获取到ip地址！"))
     }
@@ -46,12 +54,12 @@ struct Sh {
 
 #[get("/description.xml")]
 async fn description(dlna: web::Data<Arc<DLNAHandler>>, req: HttpRequest) -> impl Responder {
-    let info = req.connection_info();
-    match info.peer_addr() {
+    let info = req.connection_info().peer_addr().map(|ip| ip.to_string());
+    match info {
         Some(ip)
             if ALLOW_IP
                 .read()
-                .unwrap()
+                .await
                 .contains(&ip.parse::<Ipv4Addr>().unwrap()) =>
         {
             HttpResponse::Ok()
@@ -62,69 +70,64 @@ async fn description(dlna: web::Data<Arc<DLNAHandler>>, req: HttpRequest) -> imp
     }
 }
 
-pub fn run_main(
+pub async fn dlna_run(
     name: String,
     uuid_path: &Path,
     av_action: AVTransportAction,
 ) -> std::io::Result<()> {
-    actix_web::rt::System::new().block_on(async move {
-        android::remove_file(&uuid_path.join("out.log")).await?;
-        android::remove_file(&uuid_path.join("hztp")).await?;
-        android::remove_file(&uuid_path.join("hztp_uuid.txt")).await?;
-        if let Err(err) = android::uninstall_package("com.waxrain.airplaydmr").await {
-            eprintln!("卸载失败 {err:?}");
+    android::remove_file(&uuid_path.join("out.log")).await?;
+    android::remove_file(&uuid_path.join("hztp")).await?;
+    android::remove_file(&uuid_path.join("hztp_uuid.txt")).await?;
+    if let Err(err) = android::uninstall_package("com.waxrain.airplaydmr").await {
+        eprintln!("卸载失败 {err:?}");
+    }
+    // let mut args = std::env::args();
+    // args.next();
+    // let name = args.next().unwrap_or(name);
+    tokio::spawn(async {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            if let Err(err) = ip_online_check().await {
+                log::error!("检查ip地址是否在线失败！ error = {:?}", err);
+            }
         }
-        let mut args = std::env::args();
-        args.next();
-        let name = args.next().unwrap_or(name);
-        tokio::spawn(async {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                if let Err(err) = ip_online_check().await {
-                    log::error!("检查ip地址是否在线失败！ error = {:?}", err);
-                }
-            }
-        });
-        // airplay mdns
-        // let mut air_play_bonjour = AirPlayBonjour::new(name.clone());
-        // air_play_bonjour.start();
-        let dlna = match dlna_init(name, uuid_path) {
-            Ok(dlna) => dlna,
-            Err(err) => {
-                log::error!("dlna init error {err:?}");
-                return Err(err);
-            }
-        };
-        let dlna = Arc::new(dlna);
-        // let connect_uri = if cfg!(windows) {
-        //     "http://192.169.1.19:10021".to_string()
-        // } else {
-        //     format!("http://{}", ANDROID_ADDR)
-        // };
-        // let rpc_client = loop {
-        //     if let Ok(client) = AvTransportClient::connect(connect_uri.clone()).await {
-        //         break client;
-        //     }
-        //     tokio::time::sleep(Duration::from_secs(2)).await;
-        // };
-        let rpc_client = Arc::new(Mutex::new(av_action));
+    });
+    let dlna = match dlna_init(name, uuid_path).await {
+        Ok(dlna) => dlna,
+        Err(err) => {
+            log::error!("dlna init error {err:?}");
+            return Err(err);
+        }
+    };
+    let dlna = Arc::new(dlna);
+    // let connect_uri = if cfg!(windows) {
+    //     "http://192.169.1.19:10021".to_string()
+    // } else {
+    //     format!("http://{}", ANDROID_ADDR)
+    // };
+    // let rpc_client = loop {
+    //     if let Ok(client) = AvTransportClient::connect(connect_uri.clone()).await {
+    //         break client;
+    //     }
+    //     tokio::time::sleep(Duration::from_secs(2)).await;
+    // };
+    let rpc_client = Arc::new(Mutex::new(av_action));
 
-        log::info!("Starting Server...");
+    log::info!("Starting Server...");
 
-        HttpServer::new(move || {
-            App::new()
-                .wrap(Logger::default())
-                .app_data(web::Data::new(dlna.clone()))
-                .app_data(web::Data::new(rpc_client.clone()))
-                .service(hello)
-                .route("/ip", web::get().to(bind_ip))
-                // .service(sh)
-                .service(description)
-                .configure(routers::dlna::config)
-                .route("/hey", web::get().to(manual_hello))
-        })
-        .bind(("0.0.0.0", SERVER_PORT))?
-        .run()
-        .await
+    HttpServer::new(move || {
+        App::new()
+            .wrap(Logger::default())
+            .app_data(web::Data::new(dlna.clone()))
+            .app_data(web::Data::new(rpc_client.clone()))
+            .service(hello)
+            .route("/ip", web::get().to(bind_ip))
+            // .service(sh)
+            .service(description)
+            .configure(routers::dlna::config)
+            .route("/hey", web::get().to(manual_hello))
     })
+    .bind(("0.0.0.0", SERVER_PORT))?
+    .run()
+    .await
 }
