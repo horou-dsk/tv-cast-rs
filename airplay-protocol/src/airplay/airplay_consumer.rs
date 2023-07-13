@@ -16,6 +16,8 @@ pub trait AirPlayConsumer: Send + Sync {
     fn on_audio_src_disconnect(&self);
 
     fn on_volume(&self, volume: f32);
+
+    fn is_connected(&self) -> bool;
 }
 
 pub type ArcAirPlayConsumer = Arc<dyn AirPlayConsumer>;

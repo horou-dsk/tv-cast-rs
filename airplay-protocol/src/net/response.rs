@@ -31,6 +31,21 @@ impl Response {
         }
     }
 
+    pub fn rtsp_err(req: &Request) -> Self {
+        let mut headers = HashMap::new();
+        headers.insert("server", "AirTunes/220.68".to_string());
+        headers.insert("Content-Length", "0".to_string());
+        if let Some(cseq) = req.headers().get("cseq") {
+            headers.insert("cseq", cseq.to_str().unwrap().to_string());
+        }
+        Self {
+            protocol: Protocol::Rtsp1_0,
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            headers,
+            body: None,
+        }
+    }
+
     pub fn http_ok() -> Self {
         let mut headers = HashMap::new();
         headers.insert("server", "AirTunes/220.68".to_string());
@@ -92,5 +107,9 @@ impl Response {
     pub fn status_code(mut self, status_code: StatusCode) -> Self {
         self.status = status_code;
         self
+    }
+
+    pub fn status(&self) -> StatusCode {
+        self.status
     }
 }

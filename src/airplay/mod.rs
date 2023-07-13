@@ -1,5 +1,5 @@
 pub mod exo_golomb;
-mod h264_dcoder;
+mod media_decoder;
 pub mod native_obj;
 
 use std::{cell::UnsafeCell, str::FromStr, sync::Arc};
@@ -12,6 +12,7 @@ use airplay2_protocol::{
     control_handle::ControlHandle,
     net::server::Server,
 };
+use crossbeam::channel;
 use gst::{prelude::*, Caps};
 use gst_app::{AppSrc, AppStreamType};
 use jni::{
@@ -26,13 +27,16 @@ static mut G_OBJ: Option<GlobalRef> = None;
 
 use crate::{G_JVM, G_SERVICE};
 
-use self::h264_dcoder::H264Decoder;
+use self::media_decoder::H264Decoder;
 
 pub struct VideoConsumer {
     alac: (gst::Pipeline, AppSrc, gst::Element),
     aac_eld: (gst::Pipeline, AppSrc, gst::Element),
     audio_compression_type: UnsafeCell<CompressionType>,
-    h264_decoder: H264Decoder,
+    h264_decoder: UnsafeCell<Option<H264Decoder>>,
+    gh264: (gst::Pipeline, AppSrc),
+    channel: (channel::Sender<()>, channel::Receiver<()>),
+    stop: UnsafeCell<Option<bool>>,
 }
 
 unsafe impl Sync for VideoConsumer {}
@@ -121,18 +125,99 @@ impl VideoConsumer {
         ])
         .unwrap();
 
+        let h264pipeline = gst::parse_launch(
+            "appsrc name=h264-src ! h264parse ! amcviddec-omxgoogleh264decoder ! glimagesink name=videosink sync=false",
+        )
+        .unwrap();
+
+        let h264pipeline = h264pipeline.dynamic_cast::<gst::Pipeline>().unwrap();
+
+        let mut h264_src = None;
+
+        for elem in h264pipeline.children() {
+            // println!("{}", elem.name());
+            if elem.name() == "h264-src" {
+                h264_src = Some(elem.dynamic_cast::<gst_app::AppSrc>().unwrap());
+                break;
+            }
+        }
+
+        let caps = gst::Caps::from_str(
+            "video/x-h264,colorimetry=bt709,stream-format=(string)byte-stream,alignment=(string)au",
+        )
+        .unwrap();
+
+        let h264_src = h264_src.unwrap();
+
+        h264_src.set_caps(Some(&caps));
+        h264_src.set_is_live(true);
+        h264_src.set_stream_type(gst_app::AppStreamType::Stream);
+        h264_src.set_format(gst::Format::Time);
+        h264_src.set_property("emit-signals", true);
+
         Self {
             alac: (alac_pipeline, alac_appsrc, alac_volume),
             aac_eld: (aac_eld_pipeline, aac_eld_appsrc, aac_eld_volume),
             audio_compression_type: CompressionType::Alac.into(),
-            h264_decoder: H264Decoder::default(),
+            h264_decoder: UnsafeCell::new(None),
+            channel: channel::unbounded(),
+            gh264: (h264pipeline, h264_src),
+            stop: UnsafeCell::new(None),
+        }
+    }
+
+    pub fn set_surface(&self, surface: &NativeWindow) {
+        // self.set_overlay(surface);
+        if let Some(h264_decoder) = unsafe { (*self.h264_decoder.get()).as_ref() } {
+            if let Err(err) = h264_decoder.set_surface(surface) {
+                log::error!("Error setting surface: {:?}", err);
+            } else {
+                // h264_decoder.start_decode().expect("Error starting decode");
+            }
+        }
+    }
+
+    pub fn set_overlay(&self, surface: &NativeWindow) {
+        let elem = 'e: {
+            for elem in self.gh264.0.children() {
+                if elem.name() == "videosink" {
+                    break 'e Some(elem);
+                }
+            }
+            None
+        };
+        unsafe {
+            gst_video_sys::gst_video_overlay_set_window_handle(
+                elem.unwrap().as_ptr() as *mut gst_video_sys::GstVideoOverlay,
+                // elem.unwrap().as_ptr() as *mut gst_video_sys::GstVideoOverlay,
+                surface.ptr().addr().into(),
+            );
+        }
+    }
+
+    pub fn stop(&self) {
+        let is_top = unsafe { &mut *self.stop.get() };
+        if is_top.is_some() {
+            is_top.take();
+        } else {
+            is_top.replace(true);
+            if let Some(h264_decoder) = unsafe { (*self.h264_decoder.get()).take() } {
+                let _ = h264_decoder.stop_decode();
+            }
         }
     }
 }
 
 impl AirPlayConsumer for VideoConsumer {
     fn on_video(&self, bytes: Vec<u8>) {
-        if let Err(err) = self.h264_decoder.decode_buf(&bytes) {
+        // let buffer = gst::Buffer::from_slice(bytes);
+        // let _ = self.gh264.1.push_buffer(buffer);
+        if let Err(err) = unsafe {
+            (*self.h264_decoder.get())
+                .as_ref()
+                .unwrap()
+                .decode_buf(&bytes)
+        } {
             log::error!("Error pushing buffer: {:?}", err);
         }
     }
@@ -154,20 +239,51 @@ impl AirPlayConsumer for VideoConsumer {
             &[],
         )
         .unwrap();
+        // log::warn!("等待页面加载...");
+        // let _ = self.channel.1.recv();
+        // log::warn!("页面加载完成...");
+        // self.gh264
+        //     .0
+        //     .set_state(gst::State::Playing)
+        //     .expect("Unable to set the pipeline to the `Playing` state");
+        // if let Some(surface) = unsafe { NATIVE_WINDOW.as_ref() } {
+        //     if let Err(err) = self.h264_decoder.configure(surface) {
+        //         log::error!("Error setting surface: {:?}", err);
+        //     }
+        // } else {
+
+        // }
+        if unsafe { NATIVE_WINDOW.is_none() } {
+            let _ = self.channel.1.recv();
+        }
+        let h264_decoder = H264Decoder::default();
         if let Some(surface) = unsafe { NATIVE_WINDOW.as_ref() } {
-            if let Err(err) = self.h264_decoder.set_surface(surface) {
+            if let Err(err) = h264_decoder.configure(surface) {
                 log::error!("Error setting surface: {:?}", err);
             }
         }
-        if let Err(err) = self.h264_decoder.start_decode() {
+        if let Err(err) = h264_decoder.start_decode() {
             log::error!("Error playing: {:?}", err);
+        }
+        unsafe {
+            (*self.h264_decoder.get()).replace(h264_decoder);
         }
     }
 
     fn on_video_src_disconnect(&self) {
         log::info!("OnVideo Disconnect...");
-        if let Err(err) = self.h264_decoder.stop_decode() {
-            log::error!("Error stopping: {:?}", err);
+        // self.gh264
+        //     .0
+        //     .set_state(gst::State::Null)
+        //     .expect("Unable to set the pipeline to the `Playing` state");
+        // if let Err(err) = self.h264_decoder.stop_decode() {
+        //     log::error!("Error stopping: {:?}", err);
+        // }
+        self.stop();
+        let jvm = unsafe { G_JVM.as_ref().unwrap() };
+        let mut env = jvm.attach_current_thread().unwrap();
+        if let Some(obj) = unsafe { G_OBJ.as_ref() } {
+            let _ = env.call_method(obj, "finish", "()V", &[]);
         }
     }
 
@@ -179,7 +295,9 @@ impl AirPlayConsumer for VideoConsumer {
             "OnAudio Format......type = {:?}",
             audio_stream_info.compression_type
         );
-        unsafe { *self.audio_compression_type.get() = audio_stream_info.compression_type };
+        unsafe {
+            *self.audio_compression_type.get() = audio_stream_info.compression_type;
+        }
         self.alac
             .0
             .set_state(gst::State::Playing)
@@ -225,17 +343,35 @@ impl AirPlayConsumer for VideoConsumer {
             }
         }
     }
+
+    fn is_connected(&self) -> bool {
+        unsafe { (*self.stop.get()).take().is_none() }
+    }
 }
 
 /// # Safety
 pub unsafe fn native_surface_init(env: JNIEnv, _class: JClass, obj: JObject, surface: JObject) {
+    NATIVE_WINDOW.take();
     let surface = ndk::native_window::NativeWindow::from_surface(env.get_raw(), surface.into_raw());
-    G_OBJ = Some(env.new_global_ref(obj).unwrap());
-    NATIVE_WINDOW = Some(surface.unwrap());
+    NATIVE_WINDOW = surface;
+    if G_OBJ.is_some() {
+        if let Some(video_consumer) = VIDEO_CONSUMER.as_ref() {
+            video_consumer.set_surface(NATIVE_WINDOW.as_ref().unwrap());
+        }
+    } else {
+        G_OBJ = Some(env.new_global_ref(obj).unwrap());
+        if let Some(video_consumer) = VIDEO_CONSUMER.as_ref() {
+            // video_consumer.set_surface(NATIVE_WINDOW.as_ref().unwrap());
+            video_consumer.channel.0.send(()).unwrap();
+        }
+    }
 }
 
 /// # Safety
 pub unsafe fn native_surface_finalize(_env: JNIEnv, _class: JClass) {
+    if let Some(video_consumer) = VIDEO_CONSUMER.as_ref() {
+        video_consumer.stop();
+    }
     NATIVE_WINDOW.take();
     G_OBJ.take();
 }

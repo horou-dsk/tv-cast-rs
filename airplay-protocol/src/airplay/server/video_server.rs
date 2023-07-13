@@ -12,7 +12,7 @@ use crate::airplay::lib::fairplay_video_decryptor::FairPlayVideoDecryptor;
 
 #[derive(Default)]
 pub struct VideoServer {
-    server: Option<VideoServer1>,
+    server: Option<ServerInner>,
 }
 
 impl VideoServer {
@@ -21,7 +21,7 @@ impl VideoServer {
         video_decryptor: FairPlayVideoDecryptor,
         consumer: ArcAirPlayConsumer,
     ) -> io::Result<()> {
-        self.server = Some(VideoServer1::start(video_decryptor, consumer).await?);
+        self.server = Some(ServerInner::start(video_decryptor, consumer).await?);
         Ok(())
     }
 
@@ -34,12 +34,12 @@ impl VideoServer {
     }
 }
 
-struct VideoServer1 {
+struct ServerInner {
     task: JoinHandle<()>,
     port: u16,
 }
 
-impl VideoServer1 {
+impl ServerInner {
     pub async fn start(
         video_decryptor: FairPlayVideoDecryptor,
         consumer: ArcAirPlayConsumer,
@@ -67,8 +67,9 @@ impl VideoServer1 {
     // pub fn stop(self) {}
 }
 
-impl Drop for VideoServer1 {
+impl Drop for ServerInner {
     fn drop(&mut self) {
+        log::info!("VideoServer Stopping...");
         self.task.abort();
     }
 }

@@ -216,6 +216,17 @@ impl ControlHandle {
         }
         Ok(resp)
     }
+
+    async fn handle_rtsp_feedback(&self, req: Request<'_>) -> ResultResp {
+        let session = self.resolve_session(&req).await;
+        if self.video_consumer.is_connected() {
+            Ok(Response::rtsp_ok(&req))
+        } else {
+            session.audio_server.stop().await;
+            session.video_server.write().await.stop();
+            Ok(Response::rtsp_err(&req))
+        }
+    }
 }
 
 impl ServiceRequest for ControlHandle {
@@ -250,7 +261,7 @@ impl ServiceRequest for ControlHandle {
                     (Method::Post, "/pair-verify") => self.handle_pair_verify(req).await,
                     (Method::Post, "/fp-setup") => self.handle_fairplay_setup(req).await,
                     (Method::Setup, _) => self.handle_rtsp_setup(req).await,
-                    (Method::Post, "/feedback") => Ok(Response::rtsp_ok(&req)),
+                    (Method::Post, "/feedback") => self.handle_rtsp_feedback(req).await,
                     (Method::GetParameter, _) => self.handle_rtsp_get_parameter(req).await,
                     (Method::SetParameter, _) => self.handle_rtsp_set_parameter(req).await,
                     (Method::Teardown, _) => self.hanlde_rtsp_teardown(req).await,

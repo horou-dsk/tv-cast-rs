@@ -1,6 +1,7 @@
 #![feature(maybe_uninit_slice)]
 #![feature(lazy_cell)]
 #![feature(result_option_inspect)]
+#![feature(strict_provenance)]
 
 use std::{ffi::c_void, path::Path};
 

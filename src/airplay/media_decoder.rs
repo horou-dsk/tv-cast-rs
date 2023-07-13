@@ -8,7 +8,7 @@ use ndk::{
     media::media_codec::{MediaCodec, MediaCodecDirection, MediaFormat},
     native_window::NativeWindow,
 };
-use ndk_sys::{ANativeWindow_getFormat, ANativeWindow_setBuffersGeometry};
+// use ndk_sys::{ANativeWindow_getFormat, ANativeWindow_setBuffersGeometry};
 
 use crate::{
     airplay::{G_OBJ, NATIVE_WINDOW},
@@ -39,9 +39,9 @@ impl Default for H264Decoder {
         // media_format.set_str("mime", "video/avc");
         media_format.set_i32("width", 1920);
         media_format.set_i32("height", 1080);
-        video_decoder
-            .configure(&media_format, None, MediaCodecDirection::Decoder)
-            .unwrap();
+        // video_decoder
+        //     .configure(&media_format, None, MediaCodecDirection::Decoder)
+        //     .unwrap();
         Self {
             media_codec: video_decoder,
             media_format,
@@ -54,17 +54,17 @@ impl Default for H264Decoder {
 
 impl H264Decoder {
     pub fn decode_buf(&self, buf: &[u8]) -> ndk::media::Result<()> {
-        if buf[..4] == [0, 0, 0, 1] && buf[4] & 0x1F == 7 {
+        if buf[4] & 0x1F == 7 && buf[..4] == [0, 0, 0, 1] {
             self.sps_size_change(buf, |width, height| {
-                if let Some(window) = unsafe { NATIVE_WINDOW.as_ref() } {
+                if let Some(_window) = unsafe { NATIVE_WINDOW.as_ref() } {
                     unsafe {
-                        let format = ANativeWindow_getFormat(window.ptr().as_ptr());
-                        ANativeWindow_setBuffersGeometry(
-                            window.ptr().as_ptr(),
-                            width,
-                            height,
-                            format,
-                        );
+                        // let format = ANativeWindow_getFormat(window.ptr().as_ptr());
+                        // ANativeWindow_setBuffersGeometry(
+                        //     window.ptr().as_ptr(),
+                        //     width,
+                        //     height,
+                        //     format,
+                        // );
                         let mut env = G_JVM.as_ref().unwrap().attach_current_thread().unwrap();
                         env.call_method(
                             G_OBJ.as_ref().unwrap(),
@@ -116,11 +116,23 @@ impl H264Decoder {
     }
 
     pub fn stop_decode(&self) -> ndk::media::Result<()> {
+        self.width.store(0, Ordering::Relaxed);
+        self.height.store(0, Ordering::Relaxed);
         self.media_codec.stop()
     }
 
+    #[allow(dead_code)]
     pub fn set_surface(&self, surface: &NativeWindow) -> ndk::media::Result<()> {
         self.media_codec.set_output_surface(surface)
+    }
+
+    #[inline]
+    pub fn configure(&self, surface: &NativeWindow) -> ndk::media::Result<()> {
+        self.media_codec.configure(
+            &self.media_format,
+            Some(surface),
+            MediaCodecDirection::Decoder,
+        )
     }
 
     #[allow(unused_variables)]
